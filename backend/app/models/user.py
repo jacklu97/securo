@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.category import Category
     from app.models.category_group import CategoryGroup
     from app.models.bank_connection import BankConnection
+    from app.models.paired_device import PairedDevice
     from app.models.passkey import UserPasskey
 
 
@@ -52,6 +53,7 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     category_groups: Mapped[list["CategoryGroup"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     bank_connections: Mapped[list["BankConnection"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     passkeys: Mapped[list["UserPasskey"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    paired_devices: Mapped[list["PairedDevice"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def primary_currency(self) -> str:

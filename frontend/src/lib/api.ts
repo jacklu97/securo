@@ -61,6 +61,9 @@ import type {
   TransactionEditPayload,
   InstallmentSeriesInput,
   TransactionApplyScope,
+  PairedDevice,
+  DevicePairing,
+  DevicePairingStatus,
 } from '@/types'
 
 const api = axios.create({
@@ -1245,6 +1248,28 @@ export const reports = {
 }
 
 // Currencies
+export const devices = {
+  list: async (): Promise<PairedDevice[]> => {
+    const { data } = await api.get('/devices')
+    return data
+  },
+  createPairing: async (): Promise<DevicePairing> => {
+    const { data } = await api.post('/devices/pairings')
+    return data
+  },
+  pairingStatus: async (pairingId: string): Promise<DevicePairingStatus> => {
+    const { data } = await api.get(`/devices/pairings/${pairingId}`)
+    return data
+  },
+  rename: async (id: string, name: string): Promise<PairedDevice> => {
+    const { data } = await api.patch(`/devices/${id}`, { name })
+    return data
+  },
+  revoke: async (id: string): Promise<void> => {
+    await api.delete(`/devices/${id}`)
+  },
+}
+
 export const currencies = {
   list: async (): Promise<{ code: string; symbol: string; name: string; flag: string }[]> => {
     const { data } = await api.get('/currencies')

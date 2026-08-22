@@ -44,6 +44,7 @@ import {
   ShieldCheck,
   Sparkles,
   Fingerprint,
+  TabletSmartphone,
 } from 'lucide-react'
 import { CategoryIcon } from '@/components/category-icon'
 import {
@@ -77,6 +78,7 @@ interface AccountMenuProps {
   onTwoFactor: () => void
   /** Open the passkey management dialog. */
   onPasskeys: () => void
+  onDevices: () => void
   /** Trigger a backup download. */
   onBackup: () => void
   /** Open the "Update available" dialog. */
@@ -98,6 +100,7 @@ export function WorkspaceSwitcher({
   onChangePassword,
   onTwoFactor,
   onPasskeys,
+  onDevices,
   onBackup,
   onUpdateAvailable,
   agentsEnabled,
@@ -250,6 +253,13 @@ export function WorkspaceSwitcher({
           >
             <Fingerprint size={14} />
             {t('auth.passkeysTitle')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={onDevices}
+            className="flex items-center gap-2"
+          >
+            <TabletSmartphone size={14} />
+            {t('devices.title')}
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={onBackup}

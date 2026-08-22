@@ -38,6 +38,27 @@ export interface PasskeyOptionsResponse {
   options: Record<string, unknown>
 }
 
+export interface PairedDevice {
+  id: string
+  name: string
+  platform: 'ios' | 'android' | 'other'
+  app_version: string | null
+  created_at: string
+  last_seen_at: string | null
+  connected: boolean
+}
+
+export interface DevicePairing {
+  pairing_id: string
+  code: string
+  expires_in: number
+}
+
+export interface DevicePairingStatus {
+  status: 'pending' | 'claimed'
+  device_name: string | null
+}
+
 export interface AppSetting {
   key: string
   value: string
