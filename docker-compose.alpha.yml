@@ -1,0 +1,48 @@
+# Overlay for deploying the alpha-testing fork build (mobile pairing included)
+# with HTTPS via Caddy. Use together with the prod file:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.alpha.yml up -d
+#
+# Requires in .env: SECRET_KEY, DOMAIN (e.g. securo.example.com),
+# FRONTEND_URL=https://$DOMAIN
+services:
+  backend:
+    image: ghcr.io/jacklu97/securo-backend:alpha
+    # Not published to the host — Caddy → frontend nginx → backend.
+    ports: !reset []
+
+  celery-worker:
+    image: ghcr.io/jacklu97/securo-backend:alpha
+
+  celery-beat:
+    image: ghcr.io/jacklu97/securo-backend:alpha
+
+  mcp-server:
+    image: ghcr.io/jacklu97/securo-backend:alpha
+
+  frontend:
+    image: ghcr.io/jacklu97/securo-frontend:alpha
+    environment:
+      BACKEND_URL: http://backend:8000
+      FRONTEND_URL: https://${DOMAIN}
+    # Only reachable through Caddy.
+    ports: !reset []
+
+  caddy:
+    image: docker.io/library/caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:
