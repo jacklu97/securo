@@ -2,5 +2,16 @@
 # renewed automatically via Let's Encrypt for {$DOMAIN}.
 {$DOMAIN} {
 	encode gzip
+
+	# securo-mobile PWA, deployed by that repo's deploy-web workflow into
+	# the directory mounted at /srv/pwa. Served same-origin so the PWA's
+	# fetch calls never involve CORS. handle_path strips the /app prefix,
+	# matching the app's PWA_BASE=/app/ build.
+	handle_path /app/* {
+		root * /srv/pwa
+		try_files {path} /index.html
+		file_server
+	}
+
 	reverse_proxy frontend:8080
 }

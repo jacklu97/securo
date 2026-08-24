@@ -51,6 +51,21 @@ Let's Encrypt certificate on first request — DNS must already resolve.
 3. After friends have registered: Admin → Settings → set
    `registration_enabled` to `false`.
 
+## Mobile PWA (same origin)
+
+The securo-mobile web build is served at `https://$DOMAIN/app/` (iOS users:
+Safari → Share → Add to Home Screen — no App Store build needed). Caddy
+serves it from `./pwa`, which the securo-mobile repo's `deploy-web`
+workflow rsyncs into on every push to its main. One-time setup:
+
+    mkdir -p pwa
+    # on GitHub (securo-mobile repo): add VPS_HOST, VPS_USER, VPS_SSH_KEY
+    # secrets; VPS_PWA_PATH must be <securo checkout>/pwa if the checkout
+    # is not at /opt/securo
+
+Pairing from the PWA uses the same public URL, and being same-origin it
+needs no CORS changes.
+
 ## Updating
 
 Merging to `alpha-testing` rebuilds the `:alpha` images. On the VPS:
