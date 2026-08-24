@@ -1,0 +1,6 @@
+# TLS terminator for the alpha deployment. Certificates are provisioned and
+# renewed automatically via Let's Encrypt for {$DOMAIN}.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy frontend:8080
+}
