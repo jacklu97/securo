@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import AsyncIterator, Optional
 
 import httpx
@@ -55,6 +56,22 @@ def _serialize_messages(messages: list[ChatMessage]) -> list[dict]:
     return out
 
 
+def _build_options(temperature: float, max_tokens: Optional[int]) -> dict:
+    """Ollama defaults num_ctx to 2048 — smaller than the agent system
+    prompt plus tool schemas alone, so it silently truncates the input
+    ("truncating input prompt" in its logs) and the model never sees the
+    question or its own history. Seen live: prompt=9681 truncated to 2050,
+    yielding identical tool calls until max_iterations."""
+    options: dict = {"temperature": temperature}
+    try:
+        options["num_ctx"] = int(os.environ.get("AGENTS_OLLAMA_NUM_CTX", "") or 8192)
+    except ValueError:
+        options["num_ctx"] = 8192
+    if max_tokens is not None:
+        options["num_predict"] = max_tokens
+    return options
+
+
 def _serialize_tools(tools: Optional[list[ToolDefinition]]) -> Optional[list[dict]]:
     if not tools:
         return None
@@ -91,10 +108,8 @@ class OllamaProvider(LLMProvider):
             "model": model,
             "messages": _serialize_messages(messages),
             "stream": True,
-            "options": {"temperature": temperature},
+            "options": _build_options(temperature, max_tokens),
         }
-        if max_tokens is not None:
-            payload["options"]["num_predict"] = max_tokens
         if tools:
             payload["tools"] = _serialize_tools(tools)
 
