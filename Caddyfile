@@ -1,17 +1,26 @@
 # TLS terminator for the alpha deployment. Certificates are provisioned and
-# renewed automatically via Let's Encrypt for {$DOMAIN}.
+# renewed automatically via Let's Encrypt for both sites.
+
+# securo web UI (its nginx also proxies /api internally).
 {$DOMAIN} {
 	encode gzip
+	reverse_proxy frontend:8080
+}
 
-	# securo-mobile PWA, deployed by that repo's deploy-web workflow into
-	# the directory mounted at /srv/pwa. Served same-origin so the PWA's
-	# fetch calls never involve CORS. handle_path strips the /app prefix,
-	# matching the app's PWA_BASE=/app/ build.
-	handle_path /app/* {
+# securo-mobile PWA at the subdomain root, deployed by that repo's
+# deploy-web workflow into the directory mounted at /srv/pwa. /api is
+# proxied here too, so the PWA always talks to ITS OWN origin — no CORS,
+# same backend.
+{$PWA_DOMAIN} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	handle {
 		root * /srv/pwa
 		try_files {path} /index.html
 		file_server
 	}
-
-	reverse_proxy frontend:8080
 }
