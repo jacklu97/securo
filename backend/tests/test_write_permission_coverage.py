@@ -55,6 +55,14 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("PATCH", "/{id}"): "fastapi-users' own user router, superuser-gated",
     ("DELETE", "/{id}"): "fastapi-users' own user router, superuser-gated",
     ("POST", "/api/setup/create-admin"): "first-run bootstrap, refuses once a user exists",
+    # Device pairing: the actor is the user (or the device itself), never a
+    # workspace — pairing rows and heartbeats hold no workspace data.
+    ("POST", "/api/devices/pairings"): "creates a pairing code for the requester's own account",
+    ("POST", "/api/devices/pair"): "unauthenticated by design: the device redeems a short-lived code",
+    ("POST", "/api/devices/token"): "unauthenticated by design: the device redeems its refresh token",
+    ("POST", "/api/devices/heartbeat"): "the requester's own device row, presence only",
+    ("PATCH", "/api/devices/{device_id}"): "the requester's own device row",
+    ("DELETE", "/api/devices/{device_id}"): "the requester's own device row",
     # Instance administration: gated by `current_superuser`, not by workspace.
     ("POST", "/api/admin/users"): "superuser-gated instance administration",
     ("PATCH", "/api/admin/users/{user_id}"): "superuser-gated instance administration",
