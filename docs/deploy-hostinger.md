@@ -71,6 +71,38 @@ The web flavor of the app pairs against its own origin by design, so a QR
 generated on $DOMAIN pairs the PWA correctly even though the PWA lives on
 $PWA_DOMAIN — only the code from the QR is used, never its URL.
 
+## Agents + Telegram RAG (optional)
+
+Enables securo's chatbot with a local LLM and RAG over a Telegram finance
+group (via https://github.com/jacklu97/securo-telegram-rag). Append to
+`.env`:
+
+    AGENTS_ENABLED=true
+    AGENTS_MCP_JWT_SECRET=<openssl rand -hex 32>
+    AGENTS_DEFAULT_MODEL=qwen2.5:3b
+    AGENTS_EXTRA_MCP_SERVERS=http://telegram-rag:8900/mcp|telegram
+    TELEGRAM_API_ID=…            # my.telegram.org → API development tools
+    TELEGRAM_API_HASH=…
+    TELEGRAM_SESSION_STRING=…    # scripts/telegram_login.py in the RAG repo
+    TELEGRAM_GROUP=@yourgroup
+
+Then start with the profile and pull the model once:
+
+    docker compose -f docker-compose.prod.yml -f docker-compose.alpha.yml --profile agents up -d
+    docker compose -f docker-compose.prod.yml -f docker-compose.alpha.yml exec ollama ollama pull qwen2.5:3b
+
+In securo's UI create an agent connection with provider **Ollama** and model
+`qwen2.5:3b`. The agent then combines securo's own tools (accounts, cards)
+with `telegram.search_group_messages` — ask it e.g. "¿qué promociones hay
+para mis tarjetas de crédito?". RAG ingest status: `docker compose … exec
+telegram-rag python -c` is unnecessary — just check
+`http://telegram-rag:8900/health` from any container, or the service logs.
+
+qwen2.5:3b (~2.2 GB) fits the KVM 2 alongside the stack; expect modest but
+workable tool-use quality. Swapping the connection to a hosted provider
+(Anthropic/OpenAI keys in .env) upgrades quality without touching the RAG
+server.
+
 ## Updating
 
 Merging to `alpha-testing` rebuilds the `:alpha` images. On the VPS:

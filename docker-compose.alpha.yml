@@ -46,6 +46,32 @@ services:
     depends_on:
       - frontend
 
+  # --- agents profile: local LLM + Telegram-group RAG for the chatbot ---
+
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    profiles: [agents]
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+
+  telegram-rag:
+    image: ghcr.io/jacklu97/securo-telegram-rag:latest
+    profiles: [agents]
+    restart: unless-stopped
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_SESSION_STRING: ${TELEGRAM_SESSION_STRING:-}
+      TELEGRAM_GROUP: ${TELEGRAM_GROUP:-}
+      # Must match the backend's AGENTS_MCP_JWT_SECRET so securo-minted
+      # tokens verify on the RAG server.
+      MCP_JWT_SECRET: ${AGENTS_MCP_JWT_SECRET:-dev-mcp-secret-change-in-production}
+    volumes:
+      - telegram_rag_data:/data
+
 volumes:
   caddy_data:
   caddy_config:
+  ollama_models:
+  telegram_rag_data:
