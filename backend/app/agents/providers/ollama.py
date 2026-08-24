@@ -56,6 +56,16 @@ def _serialize_messages(messages: list[ChatMessage]) -> list[dict]:
     return out
 
 
+def _read_timeout() -> float:
+    """CPU-hosted models legitimately take minutes before the first streamed
+    byte (prompt eval + thinking). The old fixed 120s read timeout hung up on
+    requests Ollama then finished for nobody (observed live: 4m23s turn)."""
+    try:
+        return float(os.environ.get("AGENTS_OLLAMA_TIMEOUT_SECONDS", "") or 600)
+    except ValueError:
+        return 600.0
+
+
 def _build_options(temperature: float, max_tokens: Optional[int]) -> dict:
     """Ollama defaults num_ctx to 2048 — smaller than the agent system
     prompt plus tool schemas alone, so it silently truncates the input
@@ -114,7 +124,7 @@ class OllamaProvider(LLMProvider):
             payload["tools"] = _serialize_tools(tools)
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout(), connect=10.0)) as client:
                 async with client.stream("POST", url, json=payload) as resp:
                     if resp.status_code >= 400:
                         body = (await resp.aread()).decode("utf-8", errors="replace")
