@@ -15,6 +15,25 @@ from app.agents.providers.base import (
 )
 
 
+def _coerce_arguments(arguments) -> dict:
+    """Tool-call arguments must be an OBJECT in Ollama chat history.
+
+    The executor carries them as the JSON string the model streamed. Passing
+    that string through means the chat template (e.g. qwen2.5's) re-encodes
+    it — the model then sees double-escaped garbage instead of its own prior
+    call, answers with empty content, and the agent loop retries identical
+    calls until the iteration cap. Verified A/B against a live model: string
+    arguments -> empty response; object arguments -> correct final answer.
+    """
+    if isinstance(arguments, dict):
+        return arguments
+    try:
+        parsed = json.loads(arguments or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 def _serialize_messages(messages: list[ChatMessage]) -> list[dict]:
     out: list[dict] = []
     for m in messages:
@@ -23,11 +42,14 @@ def _serialize_messages(messages: list[ChatMessage]) -> list[dict]:
             msg["content"] = m.content
         if m.tool_calls:
             msg["tool_calls"] = [
-                {"function": {"name": tc.name, "arguments": tc.arguments}} for tc in m.tool_calls
+                {"function": {"name": tc.name, "arguments": _coerce_arguments(tc.arguments)}}
+                for tc in m.tool_calls
             ]
         if m.role == "tool":
-            # Ollama expects content + name for tool results
+            # Ollama's field for matching a result to its call is `tool_name`;
+            # keep `name` too for older servers that read that instead.
             if m.name:
+                msg["tool_name"] = m.name
                 msg["name"] = m.name
         out.append(msg)
     return out
