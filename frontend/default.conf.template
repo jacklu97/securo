@@ -16,8 +16,8 @@ server {
         # backend disables buffering via X-Accel-Buffering but sends no
         # keepalives, so nginx's default 60s read timeout kills the stream
         # mid-thought and the browser surfaces "TypeError: network error".
-        proxy_read_timeout 300s;
-        proxy_send_timeout 300s;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
         resolver 127.0.0.11 valid=5s;
         set $upstream ${BACKEND_URL};
         proxy_pass $upstream;
