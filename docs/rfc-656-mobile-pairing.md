@@ -1,6 +1,6 @@
 # RFC #656 — Mobile app pairing: QR connect, paired devices, connection status
 
-Status: draft · Issue: [#656](https://github.com/securo-finance/securo/issues/656)
+Status: in progress · Issue: [#656](https://github.com/securo-finance/securo/issues/656)
 
 ## Problem
 

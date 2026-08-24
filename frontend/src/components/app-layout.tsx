@@ -48,12 +48,14 @@ import {
   Shield,
   ShieldCheck,
   Fingerprint,
+  TabletSmartphone,
 } from 'lucide-react'
 import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { ChangePasswordDialog } from '@/components/change-password-dialog'
 import { BackupDialog } from '@/components/backup-dialog'
 import { TwoFactorSetup } from '@/components/two-factor-setup'
 import { PasskeyManagementDialog } from '@/components/passkey-management-dialog'
+import { DeviceManagementDialog } from '@/components/device-management-dialog'
 import { CommandPalette } from '@/components/command-palette'
 import { useCommandPaletteHotkey } from '@/hooks/use-command-palette-hotkey'
 import { GlobalChatPanel } from '@/components/global-chat-panel'
@@ -98,6 +100,7 @@ export function AppLayout() {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const [twoFactorOpen, setTwoFactorOpen] = useState(false)
   const [passkeysOpen, setPasskeysOpen] = useState(false)
+  const [devicesOpen, setDevicesOpen] = useState(false)
   const [backupOpen, setBackupOpen] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
@@ -259,6 +262,7 @@ export function AppLayout() {
             onChangePassword={() => setChangePasswordOpen(true)}
             onTwoFactor={() => setTwoFactorOpen(true)}
             onPasskeys={() => setPasskeysOpen(true)}
+            onDevices={() => setDevicesOpen(true)}
             agentsEnabled={agentsEnabled}
             onBackup={() => setBackupOpen(true)}
             dark
@@ -493,6 +497,7 @@ export function AppLayout() {
               onChangePassword={() => setChangePasswordOpen(true)}
               onTwoFactor={() => setTwoFactorOpen(true)}
               onPasskeys={() => setPasskeysOpen(true)}
+              onDevices={() => setDevicesOpen(true)}
               onBackup={() => setBackupOpen(true)}
               onUpdateAvailable={() => setUpdateDialogOpen(true)}
               agentsEnabled={agentsEnabled}
@@ -537,6 +542,10 @@ export function AppLayout() {
         open={passkeysOpen}
         onClose={() => setPasskeysOpen(false)}
       />
+      <DeviceManagementDialog
+        open={devicesOpen}
+        onClose={() => setDevicesOpen(false)}
+      />
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       {/* Slide-over global chat — opened from the sidebar pill or via
           ⌘J. The previous floating bottom-right button was removed
@@ -556,6 +565,7 @@ function UserMenu({
   onChangePassword,
   onTwoFactor,
   onPasskeys,
+  onDevices,
   onBackup,
   dark,
   isAdmin,
@@ -566,6 +576,7 @@ function UserMenu({
   onChangePassword: () => void
   onTwoFactor: () => void
   onPasskeys: () => void
+  onDevices: () => void
   onBackup: () => void
   dark?: boolean
   isAdmin?: boolean
@@ -624,6 +635,13 @@ function UserMenu({
         >
           <Fingerprint size={14} />
           {t('auth.passkeysTitle')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={onDevices}
+          className="flex items-center gap-2"
+        >
+          <TabletSmartphone size={14} />
+          {t('devices.title')}
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={onBackup}
