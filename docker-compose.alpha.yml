@@ -3,8 +3,8 @@
 #
 #   docker compose -f docker-compose.prod.yml -f docker-compose.alpha.yml up -d
 #
-# Requires in .env: SECRET_KEY, DOMAIN (e.g. securo.example.com),
-# FRONTEND_URL=https://$DOMAIN
+# Requires in .env: SECRET_KEY, DOMAIN (securo web UI, e.g. example.com),
+# PWA_DOMAIN (mobile PWA, e.g. app.example.com), FRONTEND_URL=https://$DOMAIN
 services:
   backend:
     image: ghcr.io/jacklu97/securo-backend:alpha
@@ -36,8 +36,11 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN}
+      PWA_DOMAIN: ${PWA_DOMAIN}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # securo-mobile PWA build, rsynced here by that repo's deploy workflow.
+      - ./pwa:/srv/pwa:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
