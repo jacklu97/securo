@@ -134,6 +134,10 @@ async def test_create_default_categories_localized(session: AsyncSession, test_u
     for cat in categories:
         assert cat.is_system is True
 
+    groups = await get_groups(session, test_workspace.id, include_hidden=True)
+    group_names = {g.name for g in groups}
+    assert group_names == {data["names"][lang] for data in DEFAULT_GROUPS.values()}
+
 
 def test_default_taxonomy_covers_all_supported_languages():
     langs = ["en", "pt-BR", "pt-PT", "de", "fr", "es", "it", "pl", "ru", "uk", "nl", "sk", "el", "hi", "ja"]
