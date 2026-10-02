@@ -7,6 +7,7 @@ from sqlalchemy import case, delete, func, select, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import contains_eager
 
+from app.core.app_clock import app_today
 from app.models.account import Account
 from app.models.bank_connection import BankConnection
 from app.models.credit_card_bill import CreditCardBill
@@ -15,6 +16,7 @@ from app.schemas.account import AccountCreate, AccountUpdate
 from app.services._query_filters import (
     counts_as_pnl,
     counts_in_current_balance,
+    counts_on_bill,
     is_confirmed,
     is_inside_provider_snapshot,
     is_not_future,
@@ -49,7 +51,7 @@ def _opening_balance_values(account_type: str, balance: Decimal) -> tuple[Decima
 
 
 async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_closed: bool = False) -> list[dict]:
-    today = _Date.today()
+    today = app_today()
     # Subquery: compute current_balance per account from transactions in one pass
     # Use amount_primary only when tx currency differs from account currency
     # (converts foreign txs to account's reporting currency)
@@ -133,10 +135,26 @@ async def get_accounts(session: AsyncSession, workspace_id: uuid.UUID, include_c
         ]
 
 
-def _institution_name(connection: Optional[BankConnection]) -> Optional[str]:
-    if not connection:
-        return None
-    return connection.display_name or connection.institution_name
+def _institution(
+    acc: Account, connection: Optional[BankConnection]
+) -> tuple[Optional[str], Optional[str]]:
+    # (name, logo) resolved as a pair so both always describe the same
+    # institution. The account's own institution (SimpleFIN — issue #345)
+    # only outranks a connection rename when the link actually spans several
+    # institutions — on a single-bank link the rename keeps working. The logo
+    # falls back to the connection's only on single-institution links, where
+    # it belongs to the same bank; on multi links a missing favicon beats
+    # another bank's.
+    if acc.institution is None:
+        if not connection:
+            return None, None
+        return connection.display_name or connection.institution_name, connection.logo_url
+    if connection is None:
+        return acc.institution.name, acc.institution.logo_url
+    if len(connection.institutions) > 1:
+        return acc.institution.name, acc.institution.logo_url
+    name = connection.display_name or acc.institution.name
+    return name, acc.institution.logo_url or connection.logo_url
 
 
 def serialize_account(
@@ -152,6 +170,7 @@ def serialize_account(
     else:
         resolved_balance = float(current_balance or 0)
 
+    institution_name, institution_logo_url = _institution(acc, connection)
     payload = {
         "id": acc.id,
         "user_id": acc.user_id,
@@ -173,8 +192,9 @@ def serialize_account(
         "minimum_payment": float(acc.minimum_payment) if acc.minimum_payment is not None else None,
         "card_brand": acc.card_brand,
         "card_level": acc.card_level,
-        "institution_name": _institution_name(connection),
-        "institution_logo_url": connection.logo_url if connection else None,
+        "shared_balance_group": acc.shared_balance_group,
+        "institution_name": institution_name,
+        "institution_logo_url": institution_logo_url,
         "available_credit": None,
         "next_close_date": None,
         "next_due_date": None,
@@ -267,7 +287,7 @@ async def create_account(
             description="Saldo inicial",
             amount=amount,
             currency=data.currency,
-            date=data.balance_date or _Date.today(),
+            date=data.balance_date or app_today(),
             type=opening_type,
             source="opening_balance",
         )
@@ -394,7 +414,7 @@ async def update_account(
                     description="Saldo inicial",
                     amount=amount,
                     currency=account.currency,
-                    date=balance_date or _Date.today(),
+                    date=balance_date or app_today(),
                     type=opening_type,
                     source="opening_balance",
                 )
@@ -456,7 +476,7 @@ async def sync_opening_balance_for_connected_account(
     # are projections and must not change the synthetic opening transaction;
     # otherwise a later-dated row can shift the opening balance even though it
     # is not part of the provider's current balance yet.
-    balance_cutoff = _Date.today()
+    balance_cutoff = app_today()
 
     # For connected CC accounts the stored balance is positive debt and the UI
     # displays it negated (account_service.serialize_account). The sum of signed
@@ -522,7 +542,7 @@ async def sync_opening_balance_for_connected_account(
         )
     )
     oldest_date = oldest_result.scalar()
-    opening_date = (oldest_date - timedelta(days=1)) if oldest_date else _Date.today()
+    opening_date = (oldest_date - timedelta(days=1)) if oldest_date else app_today()
 
     # Sign convention matches the rest of the codebase: credit = +, debit = -
     # regardless of account type. A positive offset needs a credit to raise the
@@ -658,7 +678,7 @@ async def get_account_summary(
     if not account:
         return None
 
-    today = _Date.today()
+    today = app_today()
     if not date_from:
         date_from = today.replace(day=1)
     if not date_to:
@@ -778,8 +798,18 @@ async def get_account_summary(
             )
         return query.where(bucket_date >= date_from, bucket_date <= date_to)
 
-    # Income = SUM of credit transactions in window (excluding opening_balance,
-    # paired transfers, and transfer-like categories).
+    # Which exclusions these totals answer to. A credit card's four summary
+    # numbers are all bill-side — they describe what the bank put on the
+    # statement, so they keep purchases in `treat_as_transfer` categories
+    # that the reporting filter drops. Every other account type keeps the
+    # reporting view. See `counts_on_bill` for why the bill cannot simply
+    # reuse `counts_as_pnl`.
+    summary_filter = (
+        counts_on_bill() if account.type == "credit_card" else counts_as_pnl()
+    )
+
+    # Income = SUM of credit transactions in window (excluding opening_balance
+    # and paired transfers).
     income_result = await session.execute(
         _scope(select(func.coalesce(func.sum(effective_amount), 0)).where(
             Transaction.account_id == account_id,
@@ -787,7 +817,7 @@ async def get_account_summary(
             Transaction.source != "opening_balance",
             bucket_date <= today,
             Transaction.status == "posted",
-            counts_as_pnl(),
+            summary_filter,
         ))
     )
     monthly_income = float(income_result.scalar())
@@ -795,8 +825,10 @@ async def get_account_summary(
     # Expenses = SUM of debit transactions in window (same exclusions).
     # For credit-card accounts, NET refund credits against debits so the
     # cycle's "Total da fatura" matches the bank's bill (refunds reduce the
-    # invoice amount). counts_as_pnl already excludes paired transfers and
-    # transfer-like categories, so bill payments are not double-counted.
+    # invoice amount). Paired transfers are dropped by `transfer_pair_id`;
+    # unpaired card payments are dropped by the credit-side `treat_as_transfer`
+    # exclusion in `counts_on_bill` (see its docstring for why that's
+    # asymmetric with the debit side).
     if account.type == "credit_card":
         signed_for_bill = case(
             (Transaction.type == "credit", -func.abs(effective_amount)),
@@ -808,7 +840,7 @@ async def get_account_summary(
                 Transaction.source != "opening_balance",
                 bucket_date <= today,
                 Transaction.status == "posted",
-                counts_as_pnl(),
+                summary_filter,
             ))
         )
     else:
@@ -818,7 +850,7 @@ async def get_account_summary(
                 Transaction.type == "debit",
                 bucket_date <= today,
                 Transaction.status == "posted",
-                counts_as_pnl(),
+                summary_filter,
             ))
         )
     monthly_expenses = float(expenses_result.scalar())
@@ -838,7 +870,7 @@ async def get_account_summary(
             Transaction.type == "credit",
             Transaction.source != "opening_balance",
             forecast_condition,
-            counts_as_pnl(),
+            summary_filter,
         ))
     )
     forecast_income = float(forecast_income_result.scalar() or 0)
@@ -849,7 +881,7 @@ async def get_account_summary(
                 Transaction.account_id == account_id,
                 Transaction.source != "opening_balance",
                 forecast_condition,
-                counts_as_pnl(),
+                summary_filter,
             ))
         )
     else:
@@ -858,7 +890,7 @@ async def get_account_summary(
                 Transaction.account_id == account_id,
                 Transaction.type == "debit",
                 forecast_condition,
-                counts_as_pnl(),
+                summary_filter,
             ))
         )
     forecast_expenses = float(forecast_expense_result.scalar() or 0)
@@ -982,7 +1014,7 @@ async def _account_balance_at(
         .outerjoin(Category, Transaction.category_id == Category.id)
         .where(
             Transaction.account_id == account_id,
-            Transaction.date <= min(cutoff, _Date.today()),
+            Transaction.date <= min(cutoff, app_today()),
             Transaction.status == "posted",
             Transaction.is_ignored == False,
             or_(
@@ -1016,7 +1048,7 @@ async def _account_daily_balance_series(
             Transaction.account_id == account_id,
             Transaction.date >= date_from,
             Transaction.date <= date_to,
-            Transaction.date <= _Date.today(),
+            Transaction.date <= app_today(),
             Transaction.status == "posted",
             Transaction.is_ignored == False,
             or_(
@@ -1048,7 +1080,7 @@ async def get_account_balance_history(
     if not account:
         return None
 
-    today = _Date.today()
+    today = app_today()
     if not date_from:
         date_from = today.replace(day=1)
     if not date_to:

@@ -11,7 +11,8 @@
         "it": "Casa",
         "pl": "Mieszkanie",
         "ru": "Жильё",
-        "uk": "Житло"
+        "uk": "Житло",
+        "sk": "Bývanie"
       },
       "icon": "house",
       "color": "#8B5CF6",
@@ -28,7 +29,8 @@
         "it": "Cibo e Ristoranti",
         "pl": "Jedzenie",
         "ru": "Еда и рестораны",
-        "uk": "Їжа та ресторани"
+        "uk": "Їжа та ресторани",
+        "sk": "Jedlo a reštaurácie"
       },
       "icon": "utensils-crossed",
       "color": "#F59E0B",
@@ -45,7 +47,8 @@
         "it": "Trasporti",
         "pl": "Transport",
         "ru": "Транспорт",
-        "uk": "Транспорт"
+        "uk": "Транспорт",
+        "sk": "Doprava"
       },
       "icon": "car",
       "color": "#3B82F6",
@@ -62,7 +65,8 @@
         "it": "Stile di Vita",
         "pl": "Styl życia",
         "ru": "Образ жизни",
-        "uk": "Спосіб життя"
+        "uk": "Спосіб життя",
+        "sk": "Životný štýl"
       },
       "icon": "sparkles",
       "color": "#EC4899",
@@ -79,7 +83,8 @@
         "it": "Entrate",
         "pl": "Przychody",
         "ru": "Доходы",
-        "uk": "Доходи"
+        "uk": "Доходи",
+        "sk": "Príjmy"
       },
       "icon": "trending-up",
       "color": "#16A34A",
@@ -96,7 +101,8 @@
         "it": "Altro",
         "pl": "Inne",
         "ru": "Другое",
-        "uk": "Інше"
+        "uk": "Інше",
+        "sk": "Ostatné"
       },
       "icon": "circle-help",
       "color": "#64748B",
@@ -115,7 +121,9 @@
         "it": "Casa",
         "pl": "Mieszkanie",
         "ru": "Жильё",
-        "uk": "Житло"
+        "uk": "Житло",
+        "sk": "Bývanie",
+        "nl": "Wonen"
       },
       "group": "housing",
       "icon": "house",
@@ -132,7 +140,9 @@
         "it": "Cibo e Ristoranti",
         "pl": "Jedzenie",
         "ru": "Еда и рестораны",
-        "uk": "Їжа та ресторани"
+        "uk": "Їжа та ресторани",
+        "sk": "Jedlo a reštaurácie",
+        "nl": "Eten & Drinken"
       },
       "group": "food",
       "icon": "utensils-crossed",
@@ -149,7 +159,9 @@
         "it": "Trasporti",
         "pl": "Transport",
         "ru": "Транспорт",
-        "uk": "Транспорт"
+        "uk": "Транспорт",
+        "sk": "Doprava",
+        "nl": "Transport"
       },
       "group": "transport",
       "icon": "car",
@@ -166,7 +178,9 @@
         "it": "Spesa",
         "pl": "Zakupy spożywcze",
         "ru": "Продукты",
-        "uk": "Продукти"
+        "uk": "Продукти",
+        "sk": "Potraviny",
+        "nl": "Boodschappen"
       },
       "group": "food",
       "icon": "shopping-cart",
@@ -183,7 +197,9 @@
         "it": "Salute",
         "pl": "Zdrowie",
         "ru": "Здоровье",
-        "uk": "Здоров'я"
+        "uk": "Здоров'я",
+        "sk": "Zdravie",
+        "nl": "Gezondheid"
       },
       "group": "lifestyle",
       "icon": "pill",
@@ -200,7 +216,9 @@
         "it": "Tempo Libero",
         "pl": "Rozrywka",
         "ru": "Досуг",
-        "uk": "Дозвілля"
+        "uk": "Дозвілля",
+        "sk": "Voľný čas",
+        "nl": "Vrije tijd"
       },
       "group": "lifestyle",
       "icon": "gamepad-2",
@@ -217,7 +235,9 @@
         "it": "Abbonamenti",
         "pl": "Subskrypcje",
         "ru": "Подписки",
-        "uk": "Підписки"
+        "uk": "Підписки",
+        "sk": "Predplatné",
+        "nl": "Abonnementen"
       },
       "group": "other",
       "icon": "smartphone",
@@ -234,7 +254,9 @@
         "it": "Istruzione",
         "pl": "Edukacja",
         "ru": "Образование",
-        "uk": "Освіта"
+        "uk": "Освіта",
+        "sk": "Vzdelávanie",
+        "nl": "Educatie"
       },
       "group": "lifestyle",
       "icon": "book-open",
@@ -251,7 +273,9 @@
         "it": "Trasferimenti",
         "pl": "Przelewy",
         "ru": "Переводы",
-        "uk": "Перекази"
+        "uk": "Перекази",
+        "sk": "Prevody",
+        "nl": "Overboekingen"
       },
       "group": "other",
       "icon": "arrow-left-right",
@@ -269,7 +293,9 @@
         "it": "Investimenti",
         "pl": "Inwestycje",
         "ru": "Инвестиции",
-        "uk": "Інвестиції"
+        "uk": "Інвестиції",
+        "sk": "Investície",
+        "nl": "Investeringen"
       },
       "group": "other",
       "icon": "trending-up",
@@ -287,7 +313,9 @@
         "it": "Stipendio e Entrate",
         "pl": "Wynagrodzenie i Przychody",
         "ru": "Зарплата и доходы",
-        "uk": "Зарплата та доходи"
+        "uk": "Зарплата та доходи",
+        "sk": "Mzda a príjmy",
+        "nl": "Salaris & Inkomen"
       },
       "group": "income",
       "icon": "banknote",
@@ -304,7 +332,9 @@
         "it": "Shopping",
         "pl": "Zakupy",
         "ru": "Покупки",
-        "uk": "Покупки"
+        "uk": "Покупки",
+        "sk": "Nákupy",
+        "nl": "Winkelen"
       },
       "group": "other",
       "icon": "shopping-bag",
@@ -321,7 +351,9 @@
         "it": "Donazioni",
         "pl": "Darowizny",
         "ru": "Пожертвования",
-        "uk": "Пожертви"
+        "uk": "Пожертви",
+        "sk": "Dary",
+        "nl": "Donaties"
       },
       "group": "other",
       "icon": "heart-handshake",
@@ -338,7 +370,9 @@
         "it": "Cura Personale",
         "pl": "Higiena osobista",
         "ru": "Уход за собой",
-        "uk": "Догляд за собою"
+        "uk": "Догляд за собою",
+        "sk": "Osobná starostlivosť",
+        "nl": "Persoonlijke verzorging"
       },
       "group": "lifestyle",
       "icon": "scissors",
@@ -355,7 +389,9 @@
         "it": "Tasse e Imposte",
         "pl": "Podatki i Opłaty",
         "ru": "Налоги и сборы",
-        "uk": "Податки та збори"
+        "uk": "Податки та збори",
+        "sk": "Dane a poplatky",
+        "nl": "Belastingen & Heffingen"
       },
       "group": "other",
       "icon": "landmark",
@@ -372,7 +408,9 @@
         "it": "Altro",
         "pl": "Inne",
         "ru": "Другое",
-        "uk": "Інше"
+        "uk": "Інше",
+        "sk": "Ostatné",
+        "nl": "Overig"
       },
       "group": "other",
       "icon": "circle-help",

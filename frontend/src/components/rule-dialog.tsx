@@ -1,7 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { getAccountName, sortAccountsByDisplayName } from '@/lib/account-utils'
-import { isInvalidDescriptionAction, parseRulePriority } from '@/lib/rule-form-utils'
+import { isInvalidDescriptionAction, parseRulePriority, previewableActions } from '@/lib/rule-form-utils'
+import { rules as rulesApi } from '@/lib/api'
+import { formatCurrency } from '@/lib/format'
+import { useDisplayLocale, useDateLocale } from '@/hooks/use-display-locale'
+import { usePrivacyMode } from '@/hooks/use-privacy-mode'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
@@ -12,7 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { X, Plus } from 'lucide-react'
+import { X, Plus, ChevronDown, Eye, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CategorySelect } from '@/components/category-select'
 import { flattenConditions, isConditionGroup } from '@/lib/rule-conditions'
@@ -35,6 +40,7 @@ const CONDITION_FIELDS = [
   { value: 'account_id', label: 'rules.fieldAccount' },
   { value: 'payee_id', label: 'rules.fieldPayee' },
   { value: 'date', label: 'rules.fieldDate' },
+  { value: 'status', label: 'rules.fieldStatus' },
 ] as const
 
 const STRING_OPS = [
@@ -58,7 +64,7 @@ const NUMERIC_OPS = [
 function getOpsForField(field: string) {
   if (field === 'amount' || field === 'date') return NUMERIC_OPS
   if (field === 'type') return [{ value: 'equals', label: 'rules.opIs' }]
-  if (field === 'payee_id' || field === 'account_id') return [
+  if (field === 'payee_id' || field === 'account_id' || field === 'status') return [
     { value: 'equals', label: 'rules.opIs' },
     { value: 'not_equals', label: 'rules.opIsNot' },
   ]
@@ -66,7 +72,9 @@ function getOpsForField(field: string) {
 }
 
 function defaultValueForField(field: string) {
-  return field === 'type' ? 'debit' : ''
+  if (field === 'type') return 'debit'
+  if (field === 'status') return 'pending'
+  return ''
 }
 
 function newCondition(): RuleCondition {
@@ -151,6 +159,15 @@ function ConditionRow({
           <option value="debit">{t('rules.typeExpense')}</option>
           <option value="credit">{t('rules.typeIncome')}</option>
         </select>
+      ) : condition.field === 'status' ? (
+        <select
+          className={`${SELECT_CLASS} col-span-2 w-full min-w-0 sm:w-0 sm:flex-1`}
+          value={String(condition.value)}
+          onChange={(e) => onChange('value', e.target.value)}
+        >
+          <option value="pending">{t('rules.statusPending')}</option>
+          <option value="posted">{t('rules.statusPosted')}</option>
+        </select>
       ) : condition.field === 'account_id' ? (
         <select
           className={`${SELECT_CLASS} col-span-2 w-full min-w-0 sm:w-0 sm:flex-1`}
@@ -193,20 +210,229 @@ function ConditionRow({
   )
 }
 
+/** Rows per preview request. Each one re-evaluates the whole ledger, so the
+ * page is large enough that reading through a broad rule's matches is a few
+ * requests rather than dozens. The API caps it at 100. */
+const PREVIEW_PAGE_SIZE = 50
+
+/** Collapsible "what would this rule do?" panel.
+ *
+ * Matching runs on the backend against the same engine that applies rules, so
+ * the table shows exactly what saving the draft would produce — including the
+ * transactions it matches but leaves untouched because they already have a
+ * category. The counts cover every match; the table is one window of them at a
+ * time, so a broad rule — the kind this panel exists to catch before it is
+ * saved — can be read through rather than judged by its first screenful. Any
+ * edit to the draft collapses the panel rather than leaving a stale table on
+ * screen.
+ */
+function RulePreviewPanel({
+  conditionsOp, conditions, actions, isActive, applyToExisting, overwriteExistingCategories,
+  disabled, open, onOpenChange,
+}: {
+  conditionsOp: 'and' | 'or'
+  conditions: RuleConditionNode[]
+  actions: RuleAction[]
+  // The save-time flags go to the backend too: an inactive rule, or one not
+  // being applied to existing transactions, changes nothing when saved, and
+  // the preview has to say so rather than promise changes that won't happen.
+  isActive: boolean
+  applyToExisting: boolean
+  overwriteExistingCategories: boolean
+  disabled: boolean
+  // Open state lives in the parent: the dialog widens while the table is
+  // expanded, so both have to react to the same toggle.
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const locale = useDisplayLocale()
+  const dateLocale = useDateLocale()
+  const { mask } = usePrivacyMode()
+
+  // A half-filled action row is a draft in progress, not a rule to reject, so
+  // it is left out of the request the backend validates.
+  const draftActions = useMemo(() => previewableActions(actions), [actions])
+
+  // Keyed on the whole draft, so flipping a flag refetches while the panel
+  // stays open — and a slower response for a previous draft can never land on
+  // top of the current one. Paged, because a rule matching four figures of
+  // transactions is one worth reading past the first page of.
+  const preview = useInfiniteQuery({
+    queryKey: [
+      'rule-preview', conditionsOp, conditions, draftActions,
+      isActive, applyToExisting, overwriteExistingCategories,
+    ],
+    queryFn: ({ pageParam }) => rulesApi.preview({
+      conditions_op: conditionsOp,
+      conditions,
+      actions: draftActions,
+      is_active: isActive,
+      apply_to_existing: applyToExisting,
+      overwrite_existing_categories: overwriteExistingCategories,
+      limit: PREVIEW_PAGE_SIZE,
+      offset: pageParam,
+    }),
+    initialPageParam: 0,
+    // The counts are exact whatever window came back, so what is already on
+    // screen is the offset of the next page.
+    getNextPageParam: (lastPage, pages) => {
+      const shown = pages.reduce((total, page) => total + page.sample.length, 0)
+      return shown < lastPage.matched ? shown : undefined
+    },
+    enabled: open,
+    staleTime: Infinity,
+    gcTime: 0,
+  })
+
+  // Editing the rule itself collapses the panel rather than leaving a table
+  // that describes a draft the user has moved on from. The flags don't: their
+  // whole point is watching the numbers move.
+  useEffect(() => {
+    onOpenChange(false)
+  }, [conditionsOp, conditions, actions, onOpenChange])
+
+  // Every page carries the same counts; the rows accumulate.
+  const data = preview.data?.pages[0]
+  const sample = useMemo(
+    () => preview.data?.pages.flatMap(page => page.sample) ?? [],
+    [preview.data],
+  )
+
+  return (
+    <div className="rounded-lg border border-border">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm text-foreground transition-colors hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={() => onOpenChange(!open)}
+      >
+        <span className="flex items-center gap-1.5 font-medium">
+          <Eye size={13} /> {t('rules.preview')}
+        </span>
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          {data && t('rules.previewMatched', { matched: data.matched })}
+          <ChevronDown size={14} className={cn('transition-transform', open && 'rotate-180')} />
+        </span>
+      </button>
+
+      {open && (
+        <div className="border-t border-border p-3">
+          {preview.isError ? (
+            <p className="text-xs text-rose-500">{t('rules.previewError')}</p>
+          ) : /* also while a flag change is being recomputed: the old numbers
+                 no longer describe the flags now on screen. Fetching a further
+                 page is not that — those rows are appended to a table that is
+                 still current. */
+          !data || (preview.isFetching && !preview.isFetchingNextPage) ? (
+            <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+          ) : data.matched === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('rules.previewEmpty')}</p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {t('rules.previewSummary', { matched: data.matched, changed: data.will_change })}
+                {!data.will_apply && (
+                  <> · <span className="font-medium text-amber-600 dark:text-amber-400">
+                    {isActive ? t('rules.previewNotAppliedToExisting') : t('rules.previewInactive')}
+                  </span></>
+                )}
+                {sample.length < data.matched && (
+                  <> · {t('rules.previewSampleNote', { shown: sample.length })}</>
+                )}
+              </p>
+              <div className="max-h-56 overflow-y-auto overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-card text-muted-foreground">
+                    <tr className="border-b border-border text-left">
+                      <th className="py-1.5 pr-2 font-medium">{t('transactions.date')}</th>
+                      <th className="py-1.5 pr-2 font-medium">{t('transactions.description')}</th>
+                      <th className="py-1.5 pr-2 text-right font-medium">{t('transactions.amount')}</th>
+                      <th className="py-1.5 font-medium">{t('transactions.category')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {sample.map(item => (
+                      <tr key={item.id} className={cn(!item.will_change && 'text-muted-foreground')}>
+                        <td className="whitespace-nowrap py-1.5 pr-2 tabular-nums">
+                          {new Date(item.date + 'T00:00:00').toLocaleDateString(dateLocale)}
+                        </td>
+                        <td className="max-w-[22rem] truncate py-1.5 pr-2" title={item.description}>
+                          {item.description}
+                        </td>
+                        <td className={cn(
+                          'whitespace-nowrap py-1.5 pr-2 text-right tabular-nums',
+                          item.will_change && item.type === 'credit' && 'text-emerald-600',
+                        )}>
+                          {mask(formatCurrency(Math.abs(item.amount), item.currency, locale))}
+                        </td>
+                        <td className="py-1.5">
+                          {item.will_change ? (
+                            <span className="flex items-center gap-1">
+                              <span className="truncate">
+                                {item.current_category_name ?? t('transactions.uncategorized')}
+                              </span>
+                              <ArrowRight size={11} className="shrink-0 text-muted-foreground" />
+                              <span className="truncate font-medium text-emerald-600">
+                                {item.new_category_name ?? t('transactions.uncategorized')}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1">
+                              <span className="truncate">
+                                {item.current_category_name ?? t('transactions.uncategorized')}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] font-semibold">
+                                {t('rules.previewNoChange')}
+                              </span>
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {preview.hasNextPage && (
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-border py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={preview.isFetchingNextPage}
+                  onClick={() => preview.fetchNextPage()}
+                >
+                  {preview.isFetchingNextPage
+                    ? t('common.loading')
+                    : t('rules.previewLoadMore', {
+                        more: Math.min(PREVIEW_PAGE_SIZE, data.matched - sample.length),
+                      })}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export interface RuleDialogInitialData {
   name?: string
   conditions?: RuleConditionNode[]
   actions?: RuleAction[]
+  applyToExisting?: boolean
+  overwriteExistingCategories?: boolean
 }
 
 export function RuleDialog({
-  open, onClose, rule, categories, categoryGroups, accounts, payees, onSave, loading, initialData,
+  open, onClose, rule, categories, categoryGroups, currentCategories = [], accounts, payees, onSave, loading, initialData,
 }: {
   open: boolean
   onClose: () => void
   rule: Rule | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
+  currentCategories?: Category[]
   accounts: { id: string; name: string; display_name?: string | null }[]
   payees: Payee[]
   onSave: (data: Partial<Rule>) => void
@@ -228,9 +454,15 @@ export function RuleDialog({
     defaultActions.length ? defaultActions : [{ op: 'set_category', value: '' }]
   )
   const [priority, setPriority] = useState(String(rule?.priority ?? 0))
-  const [isActive, setIsActive] = useState(rule?.is_active ?? true)
-  const [applyToExisting, setApplyToExisting] = useState(!rule)
-  const [overwriteExistingCategories, setOverwriteExistingCategories] = useState(false)
+  // Read, never written here: the row owns the switch. Kept so an edit
+  // preserves the rule's own state instead of resetting it to on, and so
+  // the preview can still say "this will match, but the rule is off".
+  const [isActive] = useState(rule?.is_active ?? true)
+  const [applyToExisting, setApplyToExisting] = useState(initialData?.applyToExisting ?? !rule)
+  const [overwriteExistingCategories, setOverwriteExistingCategories] = useState(
+    initialData?.overwriteExistingCategories ?? false
+  )
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   function updateCondition(i: number, field: keyof RuleCondition, val: string | number) {
     setConditions(prev => prev.map((node, idx) => (
@@ -309,6 +541,11 @@ export function RuleDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // Dialog renders its content through a portal, but React still bubbles
+    // events along the component tree rather than the DOM tree, so without
+    // this the submit would also reach the transaction form wrapping this
+    // dialog and trigger an unrelated save of it.
+    e.stopPropagation()
     if (hasBlankCondition || hasInvalidDescriptionAction) return
     onSave({
       name,
@@ -326,7 +563,12 @@ export function RuleDialog({
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent
         aria-describedby={undefined}
-        className="max-w-2xl max-h-[90vh] overflow-y-auto overflow-x-hidden"
+        className={cn(
+          // The preview table needs room to breathe, so the dialog widens while
+          // it is expanded — same idiom as the transaction dialog's preview pane.
+          'max-h-[90vh] overflow-y-auto overflow-x-hidden transition-[max-width] duration-300',
+          previewOpen ? 'sm:max-w-5xl max-w-2xl' : 'sm:max-w-2xl max-w-2xl',
+        )}
       >
         <DialogHeader>
           <DialogTitle>{rule ? t('rules.editRule') : t('rules.newRule')}</DialogTitle>
@@ -461,7 +703,11 @@ export function RuleDialog({
                             onChange={(val) => updateAction(i, 'value', val)}
                             categories={categories}
                             groups={categoryGroups}
+                            currentCategory={currentCategories.find(
+                              (category) => category.id === action.value
+                            )}
                             placeholder={t('rules.selectCategory')}
+                            creatable
                             className={`${SELECT_CLASS} w-full`}
                           />
                         </div>
@@ -519,16 +765,14 @@ export function RuleDialog({
             </div>
           </div>
 
-          {/* Active toggle */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-              className="h-4 w-4 rounded border-border"
-            />
-            <span className="text-sm text-foreground">{t('rules.ruleActive')}</span>
-          </label>
+          {/* No "rule is active" box here any more. Whether a rule runs
+              is a property of the rule as it sits in the list, not of
+              the form you edit it in, and having it here meant turning
+              one off was: open it, scroll, find a checkbox, save a form
+              you did not otherwise want to touch. It is a switch on the
+              row now. `isActive` is still carried and sent back
+              untouched, so editing a stopped rule does not quietly
+              restart it. */}
 
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -555,6 +799,18 @@ export function RuleDialog({
               </span>
             </label>
           )}
+
+          <RulePreviewPanel
+            conditionsOp={conditionsOp}
+            conditions={conditions}
+            actions={actions}
+            isActive={isActive}
+            applyToExisting={applyToExisting}
+            overwriteExistingCategories={overwriteExistingCategories}
+            disabled={hasBlankCondition || conditions.length === 0}
+            open={previewOpen}
+            onOpenChange={setPreviewOpen}
+          />
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>{t('common.cancel')}</Button>

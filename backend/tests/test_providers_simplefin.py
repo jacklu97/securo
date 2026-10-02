@@ -183,6 +183,38 @@ async def test_auth_errlist_raises_user_action_required():
 
 
 @pytest.mark.asyncio
+async def test_auth_errlist_with_usable_accounts_is_soft_warning(caplog):
+    """A stale SimpleFIN sub-connection must not block healthy accounts."""
+    import logging as stdlogging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "errlist": [
+                    {"code": "con.auth", "msg": "Apple Card auth required", "conn_id": "APPLE"}
+                ],
+                "accounts": [
+                    {
+                        "id": "acc-healthy",
+                        "name": "Healthy Checking",
+                        "currency": "USD",
+                        "balance": "42.00",
+                    }
+                ],
+            },
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    provider = SimpleFinProvider()
+    with caplog.at_level(stdlogging.WARNING, logger="app.providers.simplefin"), _patched_client(handler):
+        accounts = await provider.get_accounts(creds)
+
+    assert [acc.external_id for acc in accounts] == ["acc-healthy"]
+    assert any("con.auth" in rec.getMessage() for rec in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_act_failed_is_soft_warning(caplog):
     """``act.failed`` is transient — keep going, just log."""
     import logging as stdlogging
@@ -240,6 +272,45 @@ async def test_accounts_request_moves_url_userinfo_to_auth_header():
 async def test_missing_access_url_raises_session_expired():
     with pytest.raises(SessionExpiredError):
         await SimpleFinProvider().get_accounts({})
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_auth_errlist_with_requested_account_is_soft_warning(caplog):
+    """A top-level auth warning must not block requested-account transactions."""
+    import logging as stdlogging
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params.get("account") == "acc-healthy"
+        return httpx.Response(
+            200,
+            json={
+                "errlist": [
+                    {"code": "con.auth", "msg": "Apple Card auth required", "conn_id": "APPLE"}
+                ],
+                "accounts": [
+                    {
+                        "id": "acc-healthy",
+                        "transactions": [
+                            {
+                                "id": "tx-healthy",
+                                "amount": "-12.34",
+                                "posted": 1672531200,
+                                "description": "Coffee",
+                            }
+                        ],
+                    }
+                ],
+            },
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with caplog.at_level(stdlogging.WARNING, logger="app.providers.simplefin"), _patched_client(handler):
+        txns = await SimpleFinProvider().get_transactions(
+            creds, "acc-healthy", since=date(2023, 1, 1)
+        )
+
+    assert [txn.external_id for txn in txns] == ["tx-healthy"]
+    assert any("con.auth" in rec.getMessage() for rec in caplog.records)
 
 
 # ----- transactions -----------------------------------------------------------
@@ -361,6 +432,29 @@ async def test_get_transactions_chunks_long_windows():
     with _patched_client(handler):
         await SimpleFinProvider().get_transactions(creds, "acc-1", since=long_ago)
     assert len(calls) >= 3  # 200 days / 90-day window
+
+
+@pytest.mark.asyncio
+async def test_get_transactions_followup_rewinds_one_valid_full_window():
+    calls: list[tuple[int, int]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((
+            int(request.url.params["start-date"]),
+            int(request.url.params["end-date"]),
+        ))
+        return httpx.Response(
+            200, json={"accounts": [{"id": "acc-1", "transactions": []}]}
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        await SimpleFinProvider().get_transactions(
+            creds, "acc-1", since=date.today() - timedelta(days=14)
+        )
+
+    assert len(calls) == 1
+    assert calls[0][1] - calls[0][0] == 45 * 24 * 60 * 60
 
 
 # ----- holdings ---------------------------------------------------------------
@@ -518,3 +612,128 @@ def test_flow_type_is_token():
 def test_get_oauth_url_raises_for_token_flow():
     with pytest.raises(NotImplementedError):
         SimpleFinProvider().get_oauth_url("https://x", "state")
+
+
+# ----- multi-institution payloads (issue #345) --------------------------------
+
+
+def test_parse_accounts_maps_each_account_to_its_own_institution():
+    """connections[] entries are matched to accounts by conn_id, so a Setup
+    Token spanning several institutions labels each account with its own."""
+    payload = {
+        "connections": [
+            {"conn_id": "CON-1", "name": "First Bank", "org_url": "https://first.example"},
+            {"conn_id": "CON-2", "name": "Second Brokerage", "org_url": "https://second.example"},
+        ],
+        "accounts": [
+            {"id": "a1", "name": "Checking", "currency": "USD", "balance": "10", "conn_id": "CON-1"},
+            {"id": "a2", "name": "IRA", "currency": "USD", "balance": "20", "conn_id": "CON-2"},
+            {"id": "a3", "name": "Orphan", "currency": "USD", "balance": "30"},
+        ],
+    }
+
+    institution_name, accounts = SimpleFinProvider._parse_accounts(payload)
+
+    # Connection-level name keeps the previous first-entry behavior.
+    assert institution_name == "First Bank"
+    by_id = {a.external_id: a for a in accounts}
+    assert by_id["a1"].institution_name == "First Bank"
+    assert by_id["a1"].institution_external_id == "CON-1"
+    assert "first.example" in (by_id["a1"].institution_logo_url or "")
+    assert by_id["a2"].institution_name == "Second Brokerage"
+    assert by_id["a2"].institution_external_id == "CON-2"
+    assert "second.example" in (by_id["a2"].institution_logo_url or "")
+    # No conn_id → no per-account institution; serialize falls back to the connection.
+    assert by_id["a3"].institution_name is None
+    assert by_id["a3"].institution_external_id is None
+    assert by_id["a3"].institution_logo_url is None
+
+
+def test_parse_accounts_connection_without_name_or_url_is_harmless():
+    """A nameless connections[] entry is skipped; a named one without a URL
+    yields a name but no logo."""
+    payload = {
+        "connections": [
+            {"conn_id": "CON-1"},
+            {"conn_id": "CON-2", "name": "Bare Bank"},
+        ],
+        "accounts": [
+            {"id": "a1", "name": "A", "currency": "USD", "balance": "1", "conn_id": "CON-1"},
+            {"id": "a2", "name": "B", "currency": "USD", "balance": "2", "conn_id": "CON-2"},
+        ],
+    }
+
+    _, accounts = SimpleFinProvider._parse_accounts(payload)
+    by_id = {a.external_id: a for a in accounts}
+    assert by_id["a1"].institution_name is None
+    assert by_id["a2"].institution_name == "Bare Bank"
+    assert by_id["a2"].institution_logo_url is None
+
+
+def test_parse_accounts_falls_back_to_account_org_object():
+    """Spec-style servers attach an ``org`` object per account instead of a
+    top-level connections[]; the feature still works there (review on #654)."""
+    payload = {
+        "accounts": [
+            {
+                "id": "a1", "name": "Checking", "currency": "USD", "balance": "10",
+                "org": {"name": "Org Bank", "domain": "orgbank.example", "id": "ORG-1"},
+            },
+            {
+                "id": "a2", "name": "Savings", "currency": "USD", "balance": "20",
+                "org": {"domain": "nameless.example"},
+            },
+        ],
+    }
+
+    _, accounts = SimpleFinProvider._parse_accounts(payload)
+    by_id = {a.external_id: a for a in accounts}
+    assert by_id["a1"].institution_name == "Org Bank"
+    assert by_id["a1"].institution_external_id == "ORG-1"
+    assert "orgbank.example" in (by_id["a1"].institution_logo_url or "")
+    # A nameless org still identifies the bank by domain.
+    assert by_id["a2"].institution_name == "nameless.example"
+    assert by_id["a2"].institution_external_id == "nameless.example"
+    assert "nameless.example" in (by_id["a2"].institution_logo_url or "")
+
+
+@pytest.mark.asyncio
+async def test_get_holdings_carries_the_owning_account():
+    """Each holding is stamped with its owning account so the sync can build
+    one wallet per investment account (issue #345)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "accounts": [
+                    {
+                        "id": "acc-1",
+                        "name": "Employer 401(k)",
+                        "currency": "USD",
+                        "holdings": [
+                            {"id": "h-1", "description": "Apple", "symbol": "AAPL",
+                             "market_value": "10.00", "shares": "1"},
+                        ],
+                    },
+                    {
+                        "id": "acc-2",
+                        "name": "Rollover IRA",
+                        "currency": "USD",
+                        "holdings": [
+                            {"id": "h-2", "description": "Bonds", "symbol": "BND",
+                             "market_value": "5.00", "shares": "1"},
+                        ],
+                    },
+                ],
+            },
+        )
+
+    creds = {"access_url": "https://u:p@bridge.example/simplefin"}
+    with _patched_client(handler):
+        holdings = await SimpleFinProvider().get_holdings(creds)
+    by_id = {h.external_id: h for h in holdings}
+    assert by_id["h-1"].account_external_id == "acc-1"
+    assert by_id["h-1"].account_name == "Employer 401(k)"
+    assert by_id["h-2"].account_external_id == "acc-2"
+    assert by_id["h-2"].account_name == "Rollover IRA"

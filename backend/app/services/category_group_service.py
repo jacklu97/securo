@@ -11,6 +11,10 @@ from app.schemas.category_group import CategoryGroupCreate, CategoryGroupUpdate
 from app.services.category_defaults import DEFAULT_GROUPS, localized_name
 
 
+class CategoryGroupVisibilityError(ValueError):
+    """Raised when visibility is changed for a user-created category group."""
+
+
 def _resolve_group_name(key: str, lang: str) -> str:
     entry = DEFAULT_GROUPS.get(key)
     return localized_name(entry, lang) if entry else key
@@ -41,12 +45,25 @@ async def create_default_groups(
     return groups
 
 
-async def get_groups(session: AsyncSession, workspace_id: uuid.UUID) -> list[CategoryGroup]:
+async def get_groups(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    *,
+    include_hidden: bool = False,
+) -> list[CategoryGroup]:
+    filters = [CategoryGroup.workspace_id == workspace_id]
+    if not include_hidden:
+        filters.append(CategoryGroup.is_hidden.is_(False))
+
+    category_loader = selectinload(CategoryGroup.categories)
+    if not include_hidden:
+        category_loader = selectinload(CategoryGroup.categories.and_(Category.is_hidden.is_(False)))
+
     result = await session.execute(
         select(CategoryGroup)
-        .where(CategoryGroup.workspace_id == workspace_id)
-        .options(selectinload(CategoryGroup.categories))
-        .order_by(CategoryGroup.position)
+        .where(*filters)
+        .options(category_loader)
+        .order_by(CategoryGroup.is_hidden.asc(), CategoryGroup.position)
     )
     return list(result.scalars().all())
 
@@ -82,7 +99,11 @@ async def update_group(
     if not group:
         return None
 
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if changes.get("is_hidden") is True and not group.is_system:
+        raise CategoryGroupVisibilityError("Only system category groups can be hidden")
+
+    for key, value in changes.items():
         setattr(group, key, value)
 
     await session.commit()
@@ -91,12 +112,14 @@ async def update_group(
 
 async def delete_group(session: AsyncSession, group_id: uuid.UUID, workspace_id: uuid.UUID) -> bool:
     group = await get_group(session, group_id, workspace_id)
-    if not group or group.is_system:
+    if not group:
         return False
 
     # Unlink children before deleting
     await session.execute(
-        update(Category).where(Category.group_id == group_id).values(group_id=None)
+        update(Category)
+        .where(Category.workspace_id == workspace_id, Category.group_id == group_id)
+        .values(group_id=None)
     )
 
     await session.delete(group)

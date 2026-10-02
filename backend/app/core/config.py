@@ -2,7 +2,7 @@ from functools import lru_cache
 from os import getenv
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Use the same environment variable that systemd uses: https://systemd.io/CREDENTIALS/
@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # Auth
     secret_key: SecretStr = SecretStr("change-me-in-production")
+    local_auth_enabled: bool = True
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
 
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     # Set explicitly only when the URL registered in the provider dashboard
     # differs from where the app is served.
     pluggy_oauth_redirect_uri: str = ""
+    # Gates the BrasilAPI outbound lookup in _lookup_bank_info (pluggy.py).
+    # Off by default: no third-party call happens until a deploy opts in.
+    brasilapi_institution_lookup_enabled: bool = False
 
     # Enable Banking (European PSD2 banks)
     enable_banking_app_id: str = ""
@@ -65,7 +69,7 @@ class Settings(BaseSettings):
 
     # FX Rates
     openexchangerates_app_id: str = ""
-    supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK,DKK,NOK,PLN,CZK,HUF,RON,CRC,IDR,COP,CLP,DOP,RUB,GTQ,PHP,UAH,NZD,VND,SGD"  # comma-separated list
+    supported_currencies: str = "USD,EUR,GBP,BRL,CAD,AUD,CHF,ARS,JPY,MXN,INR,SEK,DKK,NOK,PLN,CZK,HUF,RON,CRC,IDR,COP,CLP,DOP,KZT,RUB,GTQ,PHP,UAH,NZD,VND,SGD,AZN,TRY,PKR,MDL,AED,THB,EGP,MYR,CNY,SAR,QAR,JMD,RSD"  # comma-separated list
     fx_sync_mode: str = "on_demand"  # "on_demand" or "scheduled"
 
     # Storage
@@ -74,6 +78,10 @@ class Settings(BaseSettings):
     storage_max_file_size_mb: int = 10
     storage_allowed_extensions: str = "jpg,jpeg,png,webp,gif,heic,pdf"
     storage_max_attachments_per_transaction: int = 10
+    # An invoice gathers more paper than a transaction does: the bill, the
+    # fiscal document, a receipt, the contract behind it, and a correction
+    # of any of them.
+    storage_max_attachments_per_invoice: int = 20
 
     # S3 Storage (for future use)
     storage_s3_bucket: str = ""
@@ -106,6 +114,16 @@ class Settings(BaseSettings):
     # Celery
     redis_url: str = "redis://localhost:6379/0"
 
+    # Reverse-proxy trust for client-IP-based rate limiting. 0 (default) means
+    # request.client.host is used as-is, which is only correct when nothing
+    # sits between the client and this service. In the shipped docker-compose
+    # topology the backend is reached through the bundled nginx frontend, so
+    # request.client.host is always nginx's container address. Set this to the
+    # number of trusted reverse proxies in front of the backend (usually 1) to
+    # derive the client IP from X-Forwarded-For instead, trusting only that
+    # many hops from the right; a chain shorter than expected is not trusted.
+    trusted_proxy_hops: int = 0
+
     # Logo size for market-priced asset icons. The logo URL is built from
     # the company website we get from the market-price provider; no API
     # key or third-party account is required. Defaults to 128×128 which
@@ -119,6 +137,26 @@ class Settings(BaseSettings):
     # Set TESOURO_DIRETO_ENABLED=false to fully disable (e.g. to avoid the
     # external dependency on the Brazilian government endpoint).
     tesouro_direto_enabled: bool = True
+
+    @property
+    def oidc_login_available(self) -> bool:
+        return bool(self.oidc_enabled and self.oidc_client_id and self.oidc_discovery_url)
+
+    @model_validator(mode="after")
+    def validate_auth_settings(self) -> "Settings":
+        if not self.local_auth_enabled and not self.oidc_login_available:
+            missing = []
+            if not self.oidc_enabled:
+                missing.append("OIDC_ENABLED=true")
+            if not self.oidc_client_id:
+                missing.append("OIDC_CLIENT_ID")
+            if not self.oidc_discovery_url:
+                missing.append("OIDC_DISCOVERY_URL")
+            raise ValueError(
+                "LOCAL_AUTH_ENABLED=false requires a complete OIDC configuration; "
+                f"missing: {', '.join(missing)}"
+            )
+        return self
 
     # The CWD-relative ".env" is kept for backward compatibility; the anchored
     # backend/.env guarantees the API and the Celery worker/beat resolve the

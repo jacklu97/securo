@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 import pytest
 
 from app.core.config import Settings
@@ -25,10 +25,11 @@ def test_env_file_is_anchored_to_backend_dir():
     assert backend_env in tuple(Path(p) for p in env_files)
 
 
-def test_env_file_with_unknown_keys_still_loads(tmp_path: Path, secrets: Path):
+def test_env_file_with_unknown_keys_still_loads(tmp_path: Path, secrets: Path, monkeypatch):
     """The .env is shared with Docker Compose and the optional modules, so it
     holds keys Settings doesn't declare (COMPOSE_PROFILES, FRONTEND_PORT,
     AGENTS_*). Unknown keys must be ignored, not abort startup."""
+    monkeypatch.delenv("SECRET_KEY")
     env_file = tmp_path / ".env"
     env_file.write_text(
         "SECRET_KEY=from-env-file\n"
@@ -110,3 +111,53 @@ def test_multiple_secrets_dirs_merge(tmp_path: Path):
             value = value.get_secret_value()
 
         assert value == expectedValue
+
+
+def test_local_auth_enabled_defaults_true(secrets: Path):
+    settings = Settings(_secrets_dir=str(secrets))
+
+    assert settings.local_auth_enabled is True
+
+
+def test_local_auth_can_be_disabled_when_oidc_is_enabled(secrets: Path):
+    settings = Settings(
+        oidc_enabled=True,
+        oidc_client_id="securo",
+        oidc_discovery_url="https://id.example.com/.well-known/openid-configuration",
+        local_auth_enabled=False,
+        _secrets_dir=str(secrets),
+    )
+
+    assert settings.local_auth_enabled is False
+
+
+def test_local_auth_disabled_requires_oidc(secrets: Path):
+    with pytest.raises(ValidationError, match="LOCAL_AUTH_ENABLED=false requires a complete OIDC configuration"):
+        Settings(local_auth_enabled=False, _secrets_dir=str(secrets))
+
+
+@pytest.mark.parametrize(
+    ("missing_field", "oidc_client_id", "oidc_discovery_url"),
+    [
+        (
+            "OIDC_CLIENT_ID",
+            "",
+            "https://id.example.com/.well-known/openid-configuration",
+        ),
+        ("OIDC_DISCOVERY_URL", "securo", ""),
+    ],
+)
+def test_local_auth_disabled_requires_complete_oidc_configuration(
+    secrets: Path,
+    missing_field: str,
+    oidc_client_id: str,
+    oidc_discovery_url: str,
+):
+    with pytest.raises(ValidationError, match=missing_field):
+        Settings(
+            oidc_enabled=True,
+            oidc_client_id=oidc_client_id,
+            oidc_discovery_url=oidc_discovery_url,
+            local_auth_enabled=False,
+            _secrets_dir=str(secrets),
+        )

@@ -83,6 +83,12 @@ function RecurringTab() {
     queryFn: categoriesApi.list,
   })
 
+  const { data: allCategoriesList } = useQuery({
+    queryKey: ['categories', 'management'],
+    queryFn: categoriesApi.listIncludingHidden,
+    enabled: Boolean(editing?.category_id),
+  })
+
   const { data: categoryGroupsList } = useQuery({
     queryKey: ['categoryGroups'],
     queryFn: categoryGroupsApi.list,
@@ -141,7 +147,14 @@ function RecurringTab() {
   })
 
   const frequencyLabel = (f: string) => {
-    const map: Record<string, string> = { monthly: t('recurring.monthly'), quarterly: t('recurring.quarterly'), weekly: t('recurring.weekly'), yearly: t('recurring.yearly') }
+    const map: Record<string, string> = {
+      monthly: t('recurring.monthly'),
+      quarterly: t('recurring.quarterly'),
+      semiannual: t('recurring.semiannual'),
+      weekly: t('recurring.weekly'),
+      biweekly: t('recurring.biweekly'),
+      yearly: t('recurring.yearly'),
+    }
     return map[f] ?? f
   }
 
@@ -257,6 +270,9 @@ function RecurringTab() {
             recurring={editing}
             categories={categoriesList ?? []}
             categoryGroups={categoryGroupsList ?? []}
+            currentCategory={allCategoriesList?.find(
+              (category) => category.id === editing?.category_id
+            )}
             accounts={accountsList ?? []}
             onSave={(data) => {
               if (editing) {
@@ -287,6 +303,7 @@ function RecurringForm({
   recurring,
   categories,
   categoryGroups,
+  currentCategory,
   accounts,
   onSave,
   onCancel,
@@ -295,6 +312,7 @@ function RecurringForm({
   recurring: RecurringTransaction | null
   categories: Category[]
   categoryGroups: CategoryGroup[]
+  currentCategory?: Category
   accounts: { id: string; name: string; display_name?: string | null }[]
   onSave: (data: Partial<RecurringTransaction>) => void
   onCancel: () => void
@@ -380,11 +398,13 @@ function RecurringForm({
           <select className={selectClass} value={frequency} onChange={(e) => setFrequency(e.target.value as RecurringTransaction['frequency'])}>
             <option value="monthly">{t('recurring.monthly')}</option>
             <option value="quarterly">{t('recurring.quarterly')}</option>
+            <option value="semiannual">{t('recurring.semiannual')}</option>
             <option value="weekly">{t('recurring.weekly')}</option>
+            <option value="biweekly">{t('recurring.biweekly')}</option>
             <option value="yearly">{t('recurring.yearly')}</option>
           </select>
         </div>
-        {(frequency === 'monthly' || frequency === 'quarterly') && (
+        {(frequency === 'monthly' || frequency === 'quarterly' || frequency === 'semiannual') && (
           <div className="space-y-2">
             <Label>{t('recurring.dayOfMonth')}</Label>
             <Input type="number" min="1" max="31" value={dayOfMonth} onChange={(e) => setDayOfMonth(e.target.value)} />
@@ -421,6 +441,7 @@ function RecurringForm({
             onChange={setCategoryId}
             categories={categories}
             groups={categoryGroups}
+            currentCategory={currentCategory}
             allowNone={true}
             className={selectClass}
           />

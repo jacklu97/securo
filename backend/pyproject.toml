@@ -1,6 +1,6 @@
 [project]
 name = "securo-backend"
-version = "0.14.4"
+version = "0.16.2"
 description = "Securo API - Personal Finance Manager"
 requires-python = ">=3.11"
 # These ranges express intent; the resolved versions live in uv.lock, which is
@@ -30,6 +30,12 @@ dependencies = [
     "yfinance>=1.3.0",
     "pgvector>=0.3.0",
     "pypdf>=5.0.0",
+    # Invoice PDF rendering. ReportLab rather than an HTML-to-PDF engine on
+    # purpose: WeasyPrint and its peers need pango, cairo and gdk-pixbuf in
+    # the image, and this is a self-hosted product where every megabyte and
+    # every native library is paid for by the person running it. ReportLab
+    # ships pure-Python wheels, and Pillow (already present) covers the logo.
+    "reportlab>=4.2.0",
     # Password-protected backups. The stdlib zipfile can only *read* the
     # legacy ZipCrypto scheme and cannot write an encrypted archive at all,
     # so AES-256 zips need this fork of it.
@@ -40,6 +46,8 @@ dependencies = [
     # agents feature pay zero cost (the package is installed but never
     # imported).
     "fastembed>=0.4.0",
+    # Resolve the host's IANA timezone when no app setting or TZ override exists.
+    "tzlocal>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -53,12 +61,12 @@ dev = [
     # Upper-bounded so CI lint stays deterministic: ruff 0.16 reformats the
     # historical alembic/ migration import blocks. Bump deliberately (with the
     # accompanying reformat) rather than letting CI float to a newer release.
-    "ruff>=0.1.0,<0.16",
+    "ruff>=0.16.4,<0.17",
     # Pinned exactly, for the same reason as ruff above: ty is pre-1.0 and each
     # 0.0.x release can add new checks, so letting it float would turn a green
     # CI red on an unrelated PR. Bump deliberately, together with whatever
     # annotations the new release asks for.
-    "ty==0.0.66",
+    "ty==0.0.84",
 ]
 
 [tool.setuptools.packages.find]
@@ -70,6 +78,9 @@ include = ["app*"]
 app = ["data/*.json"]
 
 [tool.pytest.ini_options]
+# Fail on configuration/marker typos, duplicate parameter IDs and unexpected
+# xfail passes instead of silently weakening the suite.
+strict = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
@@ -95,9 +106,16 @@ omit = [
 # 3.12+-only construct is caught here rather than by a self-hoster on 3.11.
 python-version = "3.11"
 
+[tool.ty.rules]
+unused-ignore-comment = "error"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
+# Ruff 0.16 widened its default rule set, so leaving the selection implicit
+# means a ruff bump silently changes what CI enforces. Pin the set we lint
+# against (ruff's pre-0.16 default) and change it deliberately, not by upgrade.
+select = ["E4", "E7", "E9", "F"]
 ignore = ["E711", "E712"]

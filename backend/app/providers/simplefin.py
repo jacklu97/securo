@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # initial sync (since=None) we walk backwards in chunks of this size; for
 # follow-up syncs the sync layer's typical 30-90 day window fits in one call.
 SIMPLEFIN_MAX_WINDOW_DAYS = 90
-SIMPLEFIN_DEFAULT_HISTORY_DAYS = 90
+SIMPLEFIN_DEFAULT_HISTORY_DAYS = 45  # routine overlap, not the per-request cap
 SIMPLEFIN_INITIAL_HISTORY_DAYS = 365  # ~1 year backfill on first connect
 SIMPLEFIN_HTTP_TIMEOUT = 60.0
 
@@ -152,18 +152,21 @@ def _ticker(value: Any) -> Optional[str]:
     return value.strip().upper()[:32] or None
 
 
-def _surface_errors(errlist: list[dict], context: str) -> None:
-    """Raise a typed exception for auth errors; log everything else.
+def _surface_errors(
+    errlist: list[dict], context: str, *, has_usable_data: bool = False
+) -> list[dict]:
+    """Raise for auth errors only when the response has no usable data.
 
-    SimpleFIN's spec says: *Always show those errors to your end users.* For
-    the codes the user can act on (re-auth), we raise so the API layer can
-    flip the connection status. For the rest we log and continue — the
-    response usually still has usable data alongside the warnings.
+    SimpleFIN's spec says: *Always show those errors to your end users.* The
+    Bridge can return top-level ``con.auth`` warnings for one institution while
+    still returning fresh account data for other institutions under the same
+    Access URL. In that partial-success case, log the warning and keep the sync
+    moving so one stale sub-connection does not block every healthy account.
     """
     if not errlist:
-        return
+        return []
     reauth = [e for e in errlist if (e.get("code") or "").lower() in _REAUTH_ERROR_CODES]
-    if reauth:
+    if reauth and not has_usable_data:
         first = reauth[0]
         raise ProviderUserActionRequired(
             first.get("msg") or first.get("message") or "Reauthorize at SimpleFIN Bridge",
@@ -177,10 +180,14 @@ def _surface_errors(errlist: list[dict], context: str) -> None:
             entry.get("code"),
             entry.get("msg") or entry.get("message"),
         )
+    return reauth
 
 
 class SimpleFinProvider(BankProvider):
     """SimpleFIN Bridge connector."""
+
+    def __init__(self) -> None:
+        self.action_required_warnings: list[dict] = []
 
     @property
     def name(self) -> str:
@@ -361,11 +368,56 @@ class SimpleFinProvider(BankProvider):
     # ----- account / transaction reads --------------------------------------
 
     @staticmethod
+    def _institutions_by_conn_id(payload: dict) -> dict[str, tuple[str, Optional[str]]]:
+        """conn_id → (institution name, favicon logo URL) from connections[].
+
+        One Setup Token can span several institutions; connections[] has one
+        entry per institution, matched to accounts by conn_id (issue #345).
+        """
+        by_conn_id: dict[str, tuple[str, Optional[str]]] = {}
+        for conn in payload.get("connections") or []:
+            conn_id = conn.get("conn_id")
+            name = conn.get("name")
+            if not conn_id or not name:
+                continue
+            url = conn.get("org_url") or conn.get("url") or conn.get("sfin_url")
+            by_conn_id[str(conn_id)] = (name, favicon_url_for(url) if url else None)
+        return by_conn_id
+
+    @staticmethod
+    def _account_institution_hint(
+        raw_acc: dict, by_conn_id: dict[str, tuple[str, Optional[str]]]
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """(external_id, name, logo) of the institution owning one account.
+
+        The Bridge puts institutions in a top-level connections[] matched by
+        conn_id; spec-style servers attach an ``org`` object to each account
+        instead — same fallback _org_website already does. All-None when the
+        payload carries neither.
+        """
+        conn_id = raw_acc.get("conn_id")
+        if conn_id and str(conn_id) in by_conn_id:
+            name, logo = by_conn_id[str(conn_id)]
+            return str(conn_id), name, logo
+        org = raw_acc.get("org") or {}
+        name = org.get("name") or org.get("domain")
+        if not name:
+            return None, None, None
+        url = org.get("url") or org.get("domain") or org.get("sfin-url")
+        ext = org.get("id") or org.get("domain")
+        return (
+            str(ext) if ext else None,
+            name,
+            favicon_url_for(url) if url else None,
+        )
+
+    @staticmethod
     def _parse_accounts(payload: dict) -> tuple[str, list[AccountData]]:
         connections = payload.get("connections") or []
         institution_name = (
             connections[0].get("name") if connections else "SimpleFIN Connection"
         )
+        by_conn_id = SimpleFinProvider._institutions_by_conn_id(payload)
         accounts: list[AccountData] = []
         for raw in payload.get("accounts") or []:
             balance = _to_decimal(raw.get("balance")) or Decimal("0")
@@ -374,6 +426,10 @@ class SimpleFinProvider(BankProvider):
             if not account_id:
                 continue
             name = raw.get("name") or "Account"
+            inst_ext, inst_name, inst_logo = SimpleFinProvider._account_institution_hint(
+                raw, by_conn_id
+            )
+
             accounts.append(
                 AccountData(
                     external_id=account_id,
@@ -381,13 +437,21 @@ class SimpleFinProvider(BankProvider):
                     type="checking",  # SimpleFIN doesn't expose an account type
                     balance=balance,
                     currency=currency,
+                    institution_external_id=inst_ext,
+                    institution_name=inst_name,
+                    institution_logo_url=inst_logo,
                 )
             )
         return institution_name or "SimpleFIN Connection", accounts
 
     async def get_accounts(self, credentials: dict) -> list[AccountData]:
         payload = await self._fetch_accounts(credentials, pending=False)
-        _surface_errors(payload.get("errlist") or [], context="get_accounts")
+        warnings = _surface_errors(
+            payload.get("errlist") or [],
+            context="get_accounts",
+            has_usable_data=bool(payload.get("accounts") or []),
+        )
+        self.action_required_warnings.extend(warnings)
         _, accounts = self._parse_accounts(payload)
         return accounts
 
@@ -398,34 +462,53 @@ class SimpleFinProvider(BankProvider):
         since: Optional[date] = None,
         payee_source: str = "auto",
     ) -> list[TransactionData]:
-        end_date = date.today()
+        # SimpleFIN request windows are epoch-based and use UTC boundaries,
+        # independent of Securo's configurable application calendar.
+        end_date = datetime.now(timezone.utc).date()
         if since is None:
             start_date = end_date - timedelta(days=SIMPLEFIN_INITIAL_HISTORY_DAYS)
         else:
-            start_date = since
+            # The Bridge can expose bank transactions weeks after their posted
+            # date. Always re-read one full provider window so delayed rows are
+            # eventually recovered instead of aging out of the sync cursor.
+            start_date = min(
+                since,
+                end_date - timedelta(days=SIMPLEFIN_DEFAULT_HISTORY_DAYS - 1),
+            )
         # Walk the request window in 90-day chunks (SimpleFIN's per-call cap).
         transactions: list[TransactionData] = []
         seen_ids: set[str] = set()
         cursor = start_date
-        while cursor <= end_date:
-            chunk_end = min(cursor + timedelta(days=SIMPLEFIN_MAX_WINDOW_DAYS), end_date)
+        end_exclusive = end_date + timedelta(days=1)
+        while cursor < end_exclusive:
+            chunk_end = min(
+                cursor + timedelta(days=SIMPLEFIN_MAX_WINDOW_DAYS),
+                end_exclusive,
+            )
             payload = await self._fetch_accounts(
                 credentials,
                 start_date=cursor,
-                end_date=chunk_end + timedelta(days=1),
+                end_date=chunk_end,
                 account_id=account_external_id,
                 pending=True,
             )
-            _surface_errors(payload.get("errlist") or [], context="get_transactions")
-            for raw_acc in payload.get("accounts") or []:
-                if str(raw_acc.get("id") or "") != account_external_id:
-                    continue
+            matching_accounts = [
+                raw_acc for raw_acc in payload.get("accounts") or []
+                if str(raw_acc.get("id") or "") == account_external_id
+            ]
+            warnings = _surface_errors(
+                payload.get("errlist") or [],
+                context="get_transactions",
+                has_usable_data=bool(matching_accounts),
+            )
+            self.action_required_warnings.extend(warnings)
+            for raw_acc in matching_accounts:
                 for raw_txn in raw_acc.get("transactions") or []:
                     parsed = self._build_transaction(raw_txn, payee_source)
                     if parsed and parsed.external_id not in seen_ids:
                         seen_ids.add(parsed.external_id)
                         transactions.append(parsed)
-            cursor = chunk_end + timedelta(days=1)
+            cursor = chunk_end
         return transactions
 
     @staticmethod
@@ -472,10 +555,17 @@ class SimpleFinProvider(BankProvider):
 
     async def get_holdings(self, credentials: dict) -> list[HoldingData]:
         payload = await self._fetch_accounts(credentials, pending=False)
-        _surface_errors(payload.get("errlist") or [], context="get_holdings")
+        warnings = _surface_errors(
+            payload.get("errlist") or [],
+            context="get_holdings",
+            has_usable_data=bool(payload.get("accounts") or []),
+        )
+        self.action_required_warnings.extend(warnings)
         holdings: list[HoldingData] = []
         for raw_acc in payload.get("accounts") or []:
             acc_currency = raw_acc.get("currency") or "USD"
+            acc_id = str(raw_acc.get("id") or "") or None
+            acc_name = raw_acc.get("name")
             for raw in raw_acc.get("holdings") or []:
                 holding_id = str(raw.get("id") or "")
                 if not holding_id:
@@ -503,6 +593,8 @@ class SimpleFinProvider(BankProvider):
                             if raw.get("cost_basis") is not None
                             else None,
                         },
+                        account_external_id=acc_id,
+                        account_name=acc_name,
                     )
                 )
         return holdings

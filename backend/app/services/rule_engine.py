@@ -2,6 +2,7 @@
 import re
 import unicodedata
 import uuid
+from collections.abc import Collection
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
@@ -190,18 +191,35 @@ def apply_rule_actions(
     category_already_set: bool,
     *,
     skip_description: bool = False,
+    assignable_category_ids: Collection[uuid.UUID] | None = None,
 ) -> bool:
-    """Apply actions in-place and return the updated category-set flag."""
+    """Apply actions in-place and return the updated category-set flag.
+
+    Only a category in `assignable_category_ids` is ever written. A rule that
+    names any other one keeps its remaining actions and drops the
+    categorization, leaving the transaction uncategorized.
+
+    That covers two cases. A hidden category means the user stopped using it,
+    so the pickers no longer offer it and neither should a rule. A category
+    that is simply gone means the rule went stale: its id lives inside a JSON
+    action with no foreign key behind it, and writing it would fail the insert
+    and take the whole import or sync batch with it.
+
+    Passing nothing skips the check, for callers with no workspace at hand.
+    """
     for action in actions:
         op = action.get("op")
         value = action.get("value")
 
         if op == "set_category" and not category_already_set:
             try:
-                tx.category_id = uuid.UUID(str(value))
-                category_already_set = True
+                category_id = uuid.UUID(str(value))
             except (ValueError, AttributeError):
-                pass
+                continue
+            if assignable_category_ids is not None and category_id not in assignable_category_ids:
+                continue
+            tx.category_id = category_id
+            category_already_set = True
 
         elif op == "set_description":
             if skip_description:

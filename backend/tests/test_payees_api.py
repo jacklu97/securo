@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.account import Account
+from app.models.payee import Payee
 from app.models.transaction import Transaction
 from app.models.user import User
 
@@ -76,6 +77,37 @@ async def test_list_payees(client: AsyncClient, auth_headers):
     assert len(data) == 2
     names = {p["name"] for p in data}
     assert names == {"Alpha", "Beta"}
+
+
+@pytest.mark.asyncio
+async def test_list_payees_coerces_legacy_types_to_null(
+    client: AsyncClient,
+    auth_headers,
+    session: AsyncSession,
+    test_user: User,
+    test_workspace,
+):
+    legacy_types = ("transfer", "employer", "merchant")
+    session.add_all(
+        [
+            Payee(
+                id=uuid.uuid4(),
+                user_id=test_user.id,
+                workspace_id=test_workspace.id,
+                name=f"Legacy {legacy_type}",
+                type=legacy_type,
+            )
+            for legacy_type in legacy_types
+        ]
+    )
+    await session.commit()
+
+    resp = await client.get("/api/payees", headers=auth_headers)
+
+    assert resp.status_code == 200
+    assert {payee["name"]: payee["type"] for payee in resp.json()} == {
+        f"Legacy {legacy_type}": None for legacy_type in legacy_types
+    }
 
 
 @pytest.mark.asyncio
@@ -153,6 +185,21 @@ async def test_create_payee_duplicate(client: AsyncClient, auth_headers):
         json={"name": "unique"},  # case-insensitive duplicate
     )
     assert resp.status_code == 400
+    # A code, not prose: the client owns the wording and the language.
+    assert resp.json()["detail"] == "duplicate_payee_name"
+
+
+@pytest.mark.asyncio
+async def test_rename_payee_onto_existing_name_rejected(client: AsyncClient, auth_headers):
+    await _create_payee(client, auth_headers, "Taken")
+    other = await _create_payee(client, auth_headers, "Free")
+
+    resp = await client.patch(
+        f"/api/payees/{other['id']}", headers=auth_headers,
+        json={"name": "taken"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "duplicate_payee_name"
 
 
 # ---------------------------------------------------------------------------
