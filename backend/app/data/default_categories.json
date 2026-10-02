@@ -18,6 +18,7 @@
         "hi": "आवास",
         "ja": "住居"
       },
+      "aliases": ["Alojamiento"],
       "icon": "house",
       "color": "#8B5CF6",
       "position": 0
@@ -40,6 +41,7 @@
         "hi": "भोजन और रेस्तरां",
         "ja": "食費・外食"
       },
+      "aliases": ["Comida y Cena"],
       "icon": "utensils-crossed",
       "color": "#F59E0B",
       "position": 1

@@ -8,7 +8,9 @@ path picks them up.
 Each entry has a stable internal key and the shape
 ``{"names": {lang: display_name}, "icon": ..., "color": ...}``; groups
 also carry ``position``, categories carry ``group`` (the group's
-internal key) and optionally ``treat_as_transfer``.
+internal key) and optionally ``treat_as_transfer``. Any entry may list
+``aliases``: former display names that are matched but never seeded, so
+workspaces created before a rename aren't given a duplicate.
 """
 
 import json
@@ -40,5 +42,6 @@ def localized_name(data: dict, lang: str) -> str:
 
 
 def name_variants(data: dict) -> set[str]:
-    """Every language variant of an entry's display name."""
-    return set(data["names"].values())
+    """Every name an existing entry may carry: each language's display
+    name plus any former names listed under ``aliases``."""
+    return set(data["names"].values()) | set(data.get("aliases", ()))

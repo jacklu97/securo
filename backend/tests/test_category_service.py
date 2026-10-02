@@ -12,6 +12,7 @@ from app.services.category_defaults import (
     DEFAULT_CATEGORIES,
     DEFAULT_GROUPS,
     localized_name,
+    name_variants,
 )
 from app.services.category_service import (
     create_category,
@@ -21,6 +22,7 @@ from app.services.category_service import (
     get_category,
     update_category,
 )
+from app.services.rule_service import _ensure_categories_for_keys
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,48 @@ def test_localized_name_falls_back_safely():
     assert localized_name(entry, "xx") == "Housing"
     # No English either: any available translation beats an exception.
     assert localized_name({"names": {"de": "Wohnen"}}, "xx") == "Wohnen"
+
+
+def test_aliases_are_matched_but_never_seeded():
+    housing = DEFAULT_GROUPS["housing"]
+    assert "Alojamiento" in name_variants(housing)
+    assert localized_name(housing, "es") == "Vivienda"
+
+
+@pytest.mark.asyncio
+async def test_ensure_categories_reuses_group_under_former_spanish_name(
+    session: AsyncSession, test_user, test_workspace
+):
+    """A Spanish workspace seeded before the rename still has "Alojamiento";
+    importing a housing rule must file into it, not add a "Vivienda" twin."""
+    legacy = CategoryGroup(
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        name="Alojamiento",
+        icon="house",
+        color="#8B5CF6",
+        position=0,
+        is_system=True,
+    )
+    session.add(legacy)
+    await session.flush()
+
+    created = await _ensure_categories_for_keys(
+        session, test_workspace.id, test_user.id, {"housing"}, "es"
+    )
+
+    assert created == 1
+    groups = await get_groups(session, test_workspace.id, include_hidden=True)
+    assert [g.name for g in groups] == ["Alojamiento"]
+    housing = (
+        await session.execute(
+            select(Category).where(
+                Category.workspace_id == test_workspace.id,
+                Category.name == "Vivienda",
+            )
+        )
+    ).scalar_one()
+    assert housing.group_id == legacy.id
 
 
 @pytest.mark.asyncio
