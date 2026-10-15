@@ -1,4 +1,5 @@
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -124,7 +125,9 @@ async def test_create_default_categories_english(session: AsyncSession, test_use
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("lang", ["es", "it", "pl", "ru", "uk", "nl", "sk", "el", "hi", "ja"])
+@pytest.mark.parametrize(
+    "lang", ["es", "it", "pl", "ru", "uk", "nl", "sk", "hu", "cs", "el", "hi", "ja"]
+)
 async def test_create_default_categories_localized(session: AsyncSession, test_user, test_workspace, lang):
     categories = await create_default_categories(session, test_user.id, lang=lang)
 
@@ -142,7 +145,19 @@ async def test_create_default_categories_localized(session: AsyncSession, test_u
 
 
 def test_default_taxonomy_covers_all_supported_languages():
-    langs = ["en", "pt-BR", "pt-PT", "de", "fr", "es", "it", "pl", "ru", "uk", "nl", "sk", "el", "hi", "ja"]
+    """Read the languages off the UI bundles instead of repeating them here.
+
+    A hand-written list is a copy, and a copy goes stale the moment a locale
+    PR lands: the taxonomy then seeds English for the new language and nothing
+    says so. Deriving the list means adding `frontend/src/locales/xx.json`
+    fails this test until the taxonomy covers `xx` too.
+    """
+    locales = Path(__file__).resolve().parents[2] / "frontend" / "src" / "locales"
+    if not locales.is_dir():
+        pytest.skip("frontend locales not available outside a full checkout")
+    langs = sorted(p.stem for p in locales.glob("*.json"))
+    assert "en" in langs, f"no locale bundles found in {locales}"
+
     entries = {f"category '{k}'": d for k, d in DEFAULT_CATEGORIES.items()} | {
         f"group '{k}'": d for k, d in DEFAULT_GROUPS.items()
     }

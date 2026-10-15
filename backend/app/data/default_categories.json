@@ -14,6 +14,8 @@
         "uk": "Житло",
         "nl": "Wonen",
         "sk": "Bývanie",
+        "hu": "Lakhatás",
+        "cs": "Bydlení",
         "el": "Στέγαση",
         "hi": "आवास",
         "ja": "住居"
@@ -37,6 +39,8 @@
         "uk": "Їжа та ресторани",
         "nl": "Eten & Drinken",
         "sk": "Jedlo a reštaurácie",
+        "hu": "Étkezés és éttermek",
+        "cs": "Jídlo a restaurace",
         "el": "Φαγητό & Εστίαση",
         "hi": "भोजन और रेस्तरां",
         "ja": "食費・外食"
@@ -60,6 +64,8 @@
         "uk": "Транспорт",
         "nl": "Transport",
         "sk": "Doprava",
+        "hu": "Közlekedés",
+        "cs": "Doprava",
         "el": "Μεταφορές",
         "hi": "परिवहन",
         "ja": "交通"
@@ -82,6 +88,8 @@
         "uk": "Спосіб життя",
         "nl": "Levensstijl",
         "sk": "Životný štýl",
+        "hu": "Életmód",
+        "cs": "Životní styl",
         "el": "Τρόπος ζωής",
         "hi": "जीवनशैली",
         "ja": "ライフスタイル"
@@ -104,6 +112,8 @@
         "uk": "Доходи",
         "nl": "Inkomen",
         "sk": "Príjmy",
+        "hu": "Bevételek",
+        "cs": "Příjmy",
         "el": "Εισόδημα",
         "hi": "आय",
         "ja": "収入"
@@ -126,6 +136,8 @@
         "uk": "Інше",
         "nl": "Overig",
         "sk": "Ostatné",
+        "hu": "Egyéb",
+        "cs": "Ostatní",
         "el": "Άλλα",
         "hi": "अन्य",
         "ja": "その他"
@@ -150,6 +162,8 @@
         "uk": "Житло",
         "nl": "Wonen",
         "sk": "Bývanie",
+        "hu": "Lakhatás",
+        "cs": "Bydlení",
         "el": "Στέγαση",
         "hi": "आवास",
         "ja": "住居"
@@ -172,6 +186,8 @@
         "uk": "Їжа та ресторани",
         "nl": "Eten & Drinken",
         "sk": "Jedlo a reštaurácie",
+        "hu": "Étkezés és éttermek",
+        "cs": "Jídlo a restaurace",
         "el": "Φαγητό & Εστίαση",
         "hi": "भोजन और रेस्तरां",
         "ja": "食費・外食"
@@ -194,6 +210,8 @@
         "uk": "Транспорт",
         "nl": "Transport",
         "sk": "Doprava",
+        "hu": "Közlekedés",
+        "cs": "Doprava",
         "el": "Μεταφορές",
         "hi": "परिवहन",
         "ja": "交通"
@@ -216,6 +234,8 @@
         "uk": "Продукти",
         "nl": "Boodschappen",
         "sk": "Potraviny",
+        "hu": "Élelmiszer",
+        "cs": "Potraviny",
         "el": "Σούπερ μάρκετ",
         "hi": "किराना",
         "ja": "食料品"
@@ -238,6 +258,8 @@
         "uk": "Здоров'я",
         "nl": "Gezondheid",
         "sk": "Zdravie",
+        "hu": "Egészség",
+        "cs": "Zdraví",
         "el": "Υγεία",
         "hi": "स्वास्थ्य",
         "ja": "健康・医療"
@@ -260,6 +282,8 @@
         "uk": "Дозвілля",
         "nl": "Vrije tijd",
         "sk": "Voľný čas",
+        "hu": "Szabadidő",
+        "cs": "Volný čas",
         "el": "Ψυχαγωγία",
         "hi": "मनोरंजन",
         "ja": "娯楽"
@@ -282,6 +306,8 @@
         "uk": "Підписки",
         "nl": "Abonnementen",
         "sk": "Predplatné",
+        "hu": "Előfizetések",
+        "cs": "Předplatné",
         "el": "Συνδρομές",
         "hi": "सदस्यता",
         "ja": "サブスクリプション"
@@ -304,6 +330,8 @@
         "uk": "Освіта",
         "nl": "Educatie",
         "sk": "Vzdelávanie",
+        "hu": "Oktatás",
+        "cs": "Vzdělávání",
         "el": "Εκπαίδευση",
         "hi": "शिक्षा",
         "ja": "教育"
@@ -326,6 +354,8 @@
         "uk": "Перекази",
         "nl": "Overboekingen",
         "sk": "Prevody",
+        "hu": "Átvezetések",
+        "cs": "Převody",
         "el": "Μεταφορά κεφαλαίων",
         "hi": "स्थानांतरण",
         "ja": "振替"
@@ -349,6 +379,8 @@
         "uk": "Інвестиції",
         "nl": "Investeringen",
         "sk": "Investície",
+        "hu": "Befektetések",
+        "cs": "Investice",
         "el": "Επενδύσεις",
         "hi": "निवेश",
         "ja": "投資"
@@ -372,6 +404,8 @@
         "uk": "Зарплата та доходи",
         "nl": "Salaris & Inkomen",
         "sk": "Mzda a príjmy",
+        "hu": "Fizetés és bevételek",
+        "cs": "Mzda a příjmy",
         "el": "Μισθός & Εισοδήματα",
         "hi": "वेतन और आय",
         "ja": "給与・収入"
@@ -394,6 +428,8 @@
         "uk": "Покупки",
         "nl": "Winkelen",
         "sk": "Nákupy",
+        "hu": "Vásárlás",
+        "cs": "Nákupy",
         "el": "Αγορές",
         "hi": "खरीदारी",
         "ja": "ショッピング"
@@ -416,6 +452,8 @@
         "uk": "Пожертви",
         "nl": "Donaties",
         "sk": "Dary",
+        "hu": "Adományok",
+        "cs": "Dary",
         "el": "Δωρεές",
         "hi": "दान",
         "ja": "寄付"
@@ -438,6 +476,8 @@
         "uk": "Догляд за собою",
         "nl": "Persoonlijke verzorging",
         "sk": "Osobná starostlivosť",
+        "hu": "Személyes ápolás",
+        "cs": "Osobní péče",
         "el": "Προσωπική φροντίδα",
         "hi": "व्यक्तिगत देखभाल",
         "ja": "美容・ケア"
@@ -460,6 +500,8 @@
         "uk": "Податки та збори",
         "nl": "Belastingen & Heffingen",
         "sk": "Dane a poplatky",
+        "hu": "Adók és díjak",
+        "cs": "Daně a poplatky",
         "el": "Φόροι & Τέλη",
         "hi": "कर और शुल्क",
         "ja": "税金・手数料"
@@ -482,6 +524,8 @@
         "uk": "Інше",
         "nl": "Overig",
         "sk": "Ostatné",
+        "hu": "Egyéb",
+        "cs": "Ostatní",
         "el": "Άλλα",
         "hi": "अन्य",
         "ja": "その他"
