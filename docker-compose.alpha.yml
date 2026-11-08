@@ -6,6 +6,12 @@
 # Requires in .env: SECRET_KEY, DOMAIN (securo web UI, e.g. example.com),
 # PWA_DOMAIN (mobile PWA, e.g. app.example.com), FRONTEND_URL=https://$DOMAIN
 services:
+  # Migrations must come from the same image as the backend: the prod file
+  # points migrate at upstream :latest, which can be ahead of the fork and
+  # leave the DB on a revision the :alpha backend does not know.
+  migrate:
+    image: ghcr.io/jacklu97/securo-backend:alpha
+
   backend:
     image: ghcr.io/jacklu97/securo-backend:alpha
     # Not published to the host — Caddy → frontend nginx → backend.
